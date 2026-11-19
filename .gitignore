@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Local note storage & SQLite
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite*
+*.tmp
+
+# Environment & backups
+.env
+.env.*
+*.bak
+
+# OS & editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
