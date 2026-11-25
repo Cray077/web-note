@@ -44,11 +44,16 @@
     }
 
     .sidebar-search {
+      display: flex;
+      align-items: center;
+      gap: 6px;
       padding: 10px;
       border-bottom: 1px solid #e5e8ec;
     }
 
     .sidebar-search input {
+      flex: 1 1 auto;
+      min-width: 0;
       width: 100%;
       padding: 7px 10px;
       border: 1px solid #cfd6df;
@@ -58,6 +63,25 @@
       font-size: 13px;
       color: #1f2328;
       outline: none;
+    }
+
+    .fold-all-btn {
+      flex: 0 0 auto;
+      padding: 6px 7px;
+      border: 1px solid #cfd6df;
+      border-radius: 5px;
+      background: #ffffff;
+      color: #4b5563;
+      font: inherit;
+      font-size: 12px;
+      line-height: 1;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .fold-all-btn:hover {
+      background: #f0f2f5;
+      color: #111827;
     }
 
     .sidebar-search input:focus {
@@ -170,12 +194,125 @@
       font-size: 13px;
     }
 
+    /* Sidebar folders & folding */
+    .folder-group {
+      margin-bottom: 4px;
+      border-radius: 6px;
+      border: 1px solid transparent;
+    }
+
+    .folder-group.drop-target {
+      background: #eff6ff;
+      border-color: #60a5fa;
+    }
+
+    .note-list.drop-target-root {
+      box-shadow: inset 0 0 0 2px #60a5fa;
+      border-radius: 6px;
+    }
+
+    .folder-header {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 7px 8px;
+      border-radius: 5px;
+      cursor: pointer;
+      user-select: none;
+      color: #374151;
+    }
+
+    .folder-header:hover {
+      background: #ebeff4;
+    }
+
+    .folder-chevron {
+      flex: 0 0 14px;
+      text-align: center;
+      font-size: 11px;
+      color: #6b7280;
+      line-height: 1;
+    }
+
+    .folder-name {
+      flex: 1 1 auto;
+      min-width: 0;
+      font-weight: 600;
+      font-size: 13px;
+      color: #1f2937;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .folder-count {
+      flex: 0 0 auto;
+      font-size: 11px;
+      color: #6b7280;
+      padding: 1px 5px;
+      border-radius: 999px;
+      background: #e5e7eb;
+    }
+
+    .folder-actions {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      flex: 0 0 auto;
+    }
+
+    .folder-btn {
+      width: 20px;
+      height: 20px;
+      padding: 0;
+      border: none;
+      border-radius: 4px;
+      background: transparent;
+      color: #6b7280;
+      font-size: 13px;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      opacity: 0;
+    }
+
+    .folder-header:hover .folder-btn,
+    .folder-header:focus-within .folder-btn {
+      opacity: 1;
+    }
+
+    .folder-btn:hover {
+      background: rgba(15, 23, 42, 0.08);
+      color: #111827;
+    }
+
+    .folder-children {
+      list-style: none;
+      margin: 2px 0 4px 12px;
+      padding: 0 0 0 8px;
+      border-left: 1px solid #d9dde3;
+    }
+
+    .folder-empty {
+      padding: 6px 10px;
+      font-size: 12px;
+      color: #9ca3af;
+      font-style: italic;
+    }
+
     .sidebar-footer {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       padding: 10px;
       border-top: 1px solid #d9dde3;
       background: #f6f7f9;
+    }
+
+    .sidebar-footer .btn {
+      padding: 7px 9px;
+      font-size: 12.5px;
     }
 
     .btn {
@@ -1085,10 +1222,12 @@
     <aside id="sidebar" class="sidebar">
       <div class="sidebar-search">
         <input id="search" type="search" placeholder="Search notes..." autocomplete="off" aria-label="Search notes">
+        <button id="fold-all-btn" class="fold-all-btn" type="button" title="Fold all folders" aria-label="Fold all folders" hidden>&#9656;</button>
       </div>
       <ul id="note-list" class="note-list" role="listbox" aria-label="Notes"></ul>
       <div class="sidebar-footer">
-        <button id="new-note-btn" class="btn btn-primary" type="button">+ New Note</button>
+        <button id="new-note-btn" class="btn btn-primary" type="button">+ Note</button>
+        <button id="new-folder-btn" class="btn" type="button">+ Folder</button>
         <button id="export-btn" class="btn" type="button">Export</button>
       </div>
     </aside>
@@ -1221,6 +1360,7 @@
       const LARGE_NOTE_BYTES = 200 * 1024;
       const LARGE_PREVIEW_DELAY_MS = 500;
       const TABS_STORAGE_KEY = "notes.openTabs";
+      const FOLDED_STORAGE_KEY = "notes.foldedFolders";
       const WS_RECONNECT_BASE_MS = 500;
       const WS_RECONNECT_MAX_MS = 5000;
       const WS_REQUEST_TIMEOUT_MS = 15000;
@@ -1229,8 +1369,10 @@
 
       const sidebarEl = document.getElementById("sidebar");
       const searchEl = document.getElementById("search");
+      const foldAllBtn = document.getElementById("fold-all-btn");
       const noteListEl = document.getElementById("note-list");
       const newNoteBtn = document.getElementById("new-note-btn");
+      const newFolderBtn = document.getElementById("new-folder-btn");
       const exportBtn = document.getElementById("export-btn");
       const tabStripEl = document.getElementById("tab-strip");
       const newTabBtn = document.getElementById("new-tab-btn");
@@ -1265,6 +1407,16 @@
       const wideQuery = window.matchMedia("(min-width: 900px)");
 
       let notes = [];
+      let folders = [];
+      const foldedFolderIds = new Set();
+      try {
+        const savedFolded = JSON.parse(localStorage.getItem(FOLDED_STORAGE_KEY) || "[]");
+        if (Array.isArray(savedFolded)) {
+          for (const fid of savedFolded) {
+            if (Number.isInteger(fid)) foldedFolderIds.add(fid);
+          }
+        }
+      } catch {}
       let openTabIds = [];
       const tabDocs = new Map();
       let activeId = null;
@@ -1283,6 +1435,8 @@
       let colTypeTarget = null;
       let activeTypedCell = null;
       let renamingNoteId = null;
+      let renamingFolderId = null;
+      let draggingNoteId = null;
 
       const imageVersions = new Map();
       let pendingImageInsert = null;
@@ -1806,18 +1960,208 @@
         });
       }
 
-      function renderSidebar() {
-        if (renamingNoteId !== null && noteListEl.querySelector(".note-rename-input")) {
+      function sortFoldersAlpha() {
+        folders.sort((a, b) => {
+          const cmp = a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+          return cmp !== 0 ? cmp : a.id - b.id;
+        });
+      }
+
+      function saveFoldedFolders() {
+        try {
+          localStorage.setItem(FOLDED_STORAGE_KEY, JSON.stringify(Array.from(foldedFolderIds)));
+        } catch {}
+      }
+
+      function updateFoldAllButton() {
+        if (folders.length === 0) {
+          foldAllBtn.hidden = true;
           return;
         }
+        foldAllBtn.hidden = false;
+        const allFolded = folders.every((f) => foldedFolderIds.has(f.id));
+        foldAllBtn.textContent = allFolded ? "\u25BE" : "\u25B8";
+        foldAllBtn.title = allFolded ? "Unfold all folders" : "Fold all folders";
+        foldAllBtn.setAttribute("aria-label", foldAllBtn.title);
+      }
+
+      function toggleFolderFold(folderId) {
+        if (foldedFolderIds.has(folderId)) {
+          foldedFolderIds.delete(folderId);
+        } else {
+          foldedFolderIds.add(folderId);
+        }
+        saveFoldedFolders();
+        renderSidebar();
+      }
+
+      function toggleFoldAll() {
+        if (folders.length === 0) return;
+        const allFolded = folders.every((f) => foldedFolderIds.has(f.id));
+        if (allFolded) {
+          foldedFolderIds.clear();
+        } else {
+          for (const f of folders) foldedFolderIds.add(f.id);
+        }
+        saveFoldedFolders();
+        renderSidebar();
+      }
+
+      function buildNoteItemEl(note) {
+        const li = document.createElement("li");
+        li.className = "note-item" + (note.id === activeId ? " active" : "");
+        li.dataset.id = String(note.id);
+        li.draggable = true;
+        li.setAttribute("role", "option");
+        li.setAttribute("aria-selected", note.id === activeId ? "true" : "false");
+
+        const nameRow = document.createElement("div");
+        nameRow.className = "note-name-row";
+
+        const nameEl = document.createElement("div");
+        nameEl.className = "note-name";
+        nameEl.textContent = note.filename;
+        nameEl.title = note.filename;
+
+        const renameBtn = document.createElement("button");
+        renameBtn.className = "note-rename-btn";
+        renameBtn.type = "button";
+        renameBtn.title = "Rename note";
+        renameBtn.setAttribute("aria-label", `Rename ${note.filename}`);
+        renameBtn.textContent = "\u270E";
+
+        nameRow.appendChild(nameEl);
+        nameRow.appendChild(renameBtn);
+
+        const dateEl = document.createElement("div");
+        dateEl.className = "note-date";
+        dateEl.textContent = formatDate(note.updated_at);
+
+        li.appendChild(nameRow);
+        li.appendChild(dateEl);
+        return li;
+      }
+
+      function renderSidebar() {
+        if (
+          (renamingNoteId !== null || renamingFolderId !== null) &&
+          noteListEl.querySelector(".note-rename-input")
+        ) {
+          return;
+        }
+        updateFoldAllButton();
+
         const query = searchEl.value.trim().toLowerCase();
-        const filtered = query
-          ? notes.filter((n) => n.filename.toLowerCase().includes(query))
-          : notes;
+        const validFolderIds = new Set(folders.map((f) => f.id));
+        const notesByFolder = new Map();
+        const rootNotes = [];
+
+        for (const note of notes) {
+          const matchesQuery = !query || note.filename.toLowerCase().includes(query);
+          if (note.folder_id != null && validFolderIds.has(note.folder_id)) {
+            if (!matchesQuery) continue;
+            let list = notesByFolder.get(note.folder_id);
+            if (!list) {
+              list = [];
+              notesByFolder.set(note.folder_id, list);
+            }
+            list.push(note);
+          } else if (matchesQuery) {
+            rootNotes.push(note);
+          }
+        }
 
         noteListEl.innerHTML = "";
+        const fragment = document.createDocumentFragment();
+        let renderedCount = 0;
 
-        if (filtered.length === 0) {
+        for (const folder of folders) {
+          const folderNotes = notesByFolder.get(folder.id) || [];
+          const folderNameMatches = query && folder.name.toLowerCase().includes(query);
+          if (query && folderNotes.length === 0 && !folderNameMatches) {
+            continue;
+          }
+          const displayNotes =
+            folderNameMatches && folderNotes.length === 0
+              ? notes.filter((n) => n.folder_id === folder.id)
+              : folderNotes;
+          const isFolded = !query && foldedFolderIds.has(folder.id);
+
+          const group = document.createElement("li");
+          group.className = "folder-group";
+          group.dataset.folderId = String(folder.id);
+
+          const header = document.createElement("div");
+          header.className = "folder-header";
+          header.setAttribute("role", "button");
+          header.setAttribute("aria-expanded", isFolded ? "false" : "true");
+
+          const chevron = document.createElement("span");
+          chevron.className = "folder-chevron";
+          chevron.textContent = isFolded ? "\u25B8" : "\u25BE";
+
+          const nameEl = document.createElement("span");
+          nameEl.className = "folder-name";
+          nameEl.textContent = folder.name;
+          nameEl.title = folder.name;
+
+          const totalInFolder = notes.filter((n) => n.folder_id === folder.id).length;
+          const countEl = document.createElement("span");
+          countEl.className = "folder-count";
+          countEl.textContent = String(query ? displayNotes.length : totalInFolder);
+
+          const actions = document.createElement("span");
+          actions.className = "folder-actions";
+
+          const addBtn = document.createElement("button");
+          addBtn.type = "button";
+          addBtn.className = "folder-btn folder-add-note-btn";
+          addBtn.title = `New note in ${folder.name}`;
+          addBtn.setAttribute("aria-label", `New note in ${folder.name}`);
+          addBtn.textContent = "+";
+
+          const renameBtn = document.createElement("button");
+          renameBtn.type = "button";
+          renameBtn.className = "folder-btn folder-rename-btn";
+          renameBtn.title = `Rename ${folder.name}`;
+          renameBtn.setAttribute("aria-label", `Rename ${folder.name}`);
+          renameBtn.textContent = "\u270E";
+
+          actions.appendChild(addBtn);
+          actions.appendChild(renameBtn);
+
+          header.appendChild(chevron);
+          header.appendChild(nameEl);
+          header.appendChild(countEl);
+          header.appendChild(actions);
+          group.appendChild(header);
+
+          const childrenUl = document.createElement("ul");
+          childrenUl.className = "folder-children";
+          childrenUl.hidden = isFolded;
+
+          if (displayNotes.length === 0) {
+            const emptyChild = document.createElement("li");
+            emptyChild.className = "folder-empty";
+            emptyChild.textContent = "Empty folder";
+            childrenUl.appendChild(emptyChild);
+          } else {
+            for (const note of displayNotes) {
+              childrenUl.appendChild(buildNoteItemEl(note));
+            }
+          }
+
+          group.appendChild(childrenUl);
+          fragment.appendChild(group);
+          renderedCount++;
+        }
+
+        for (const note of rootNotes) {
+          fragment.appendChild(buildNoteItemEl(note));
+          renderedCount++;
+        }
+
+        if (renderedCount === 0) {
           const empty = document.createElement("li");
           empty.className = "note-empty";
           empty.textContent = query ? "No matching notes" : "No notes";
@@ -1825,41 +2169,147 @@
           return;
         }
 
-        const fragment = document.createDocumentFragment();
-        for (const note of filtered) {
-          const li = document.createElement("li");
-          li.className = "note-item" + (note.id === activeId ? " active" : "");
-          li.dataset.id = String(note.id);
-          li.setAttribute("role", "option");
-          li.setAttribute("aria-selected", note.id === activeId ? "true" : "false");
-
-          const nameRow = document.createElement("div");
-          nameRow.className = "note-name-row";
-
-          const nameEl = document.createElement("div");
-          nameEl.className = "note-name";
-          nameEl.textContent = note.filename;
-          nameEl.title = note.filename;
-
-          const renameBtn = document.createElement("button");
-          renameBtn.className = "note-rename-btn";
-          renameBtn.type = "button";
-          renameBtn.title = "Rename note";
-          renameBtn.setAttribute("aria-label", `Rename ${note.filename}`);
-          renameBtn.textContent = "\u270E";
-
-          nameRow.appendChild(nameEl);
-          nameRow.appendChild(renameBtn);
-
-          const dateEl = document.createElement("div");
-          dateEl.className = "note-date";
-          dateEl.textContent = formatDate(note.updated_at);
-
-          li.appendChild(nameRow);
-          li.appendChild(dateEl);
-          fragment.appendChild(li);
-        }
         noteListEl.appendChild(fragment);
+      }
+
+      function applyFolderCreated(folder) {
+        if (!folder || !Number.isInteger(folder.id)) return;
+        if (folders.some((f) => f.id === folder.id)) return;
+        folders.push({
+          id: folder.id,
+          name: folder.name,
+          created_at: folder.created_at,
+        });
+        sortFoldersAlpha();
+        renderSidebar();
+      }
+
+      function applyFolderRenamed(folder) {
+        if (!folder || !Number.isInteger(folder.id)) return;
+        const existing = folders.find((f) => f.id === folder.id);
+        if (existing) {
+          existing.name = folder.name;
+        } else {
+          folders.push({
+            id: folder.id,
+            name: folder.name,
+            created_at: folder.created_at,
+          });
+        }
+        sortFoldersAlpha();
+        renderSidebar();
+      }
+
+      function applyNoteMoved(note) {
+        if (!note || !Number.isInteger(note.id)) return;
+        const existing = notes.find((n) => n.id === note.id);
+        if (existing) {
+          existing.folder_id = note.folder_id ?? null;
+        }
+        renderSidebar();
+      }
+
+      async function moveNoteToFolder(noteId, folderId) {
+        const existing = notes.find((n) => n.id === noteId);
+        if (!existing) return;
+        const currentFolderId = existing.folder_id ?? null;
+        const nextFolderId = folderId ?? null;
+        if (currentFolderId === nextFolderId) return;
+        try {
+          const res = await wsRequest("move_note", { id: noteId, folder_id: nextFolderId });
+          if (nextFolderId !== null) {
+            foldedFolderIds.delete(nextFolderId);
+            saveFoldedFolders();
+          }
+          applyNoteMoved(res.note);
+          if (!dirty) setStatus("Moved");
+        } catch (err) {
+          setStatus(err.message || "Move failed", true);
+        }
+      }
+
+      async function handleNewFolder() {
+        const raw = prompt("Folder name:");
+        if (raw === null) return;
+        const name = raw.trim();
+        if (!name) return;
+        try {
+          const res = await wsRequest("create_folder", { name });
+          applyFolderCreated(res.folder);
+          if (!dirty) setStatus("Folder created");
+        } catch (err) {
+          setStatus(err.message || "Failed to create folder", true);
+        }
+      }
+
+      function startInlineFolderRename(folderId) {
+        const folder = folders.find((f) => f.id === folderId);
+        if (!folder) return;
+        if (renamingFolderId === folderId) return;
+        if (renamingNoteId !== null || renamingFolderId !== null) {
+          renamingNoteId = null;
+          renamingFolderId = null;
+          renderSidebar();
+        }
+
+        const group = noteListEl.querySelector(`.folder-group[data-folder-id="${folderId}"]`);
+        if (!group) return;
+        const header = group.querySelector(".folder-header");
+        const nameEl = header ? header.querySelector(".folder-name") : null;
+        if (!header || !nameEl) return;
+
+        renamingFolderId = folderId;
+        const originalName = folder.name;
+
+        const input = document.createElement("input");
+        input.type = "text";
+        input.className = "note-rename-input";
+        input.value = originalName;
+        input.maxLength = 255;
+        input.setAttribute("aria-label", "Folder name");
+
+        nameEl.replaceWith(input);
+
+        let settled = false;
+
+        async function finish(commit) {
+          if (settled) return;
+          settled = true;
+          const nextName = input.value.trim();
+          renamingFolderId = null;
+
+          if (!commit || !nextName || nextName === originalName) {
+            renderSidebar();
+            return;
+          }
+
+          try {
+            const res = await wsRequest("rename_folder", { id: folderId, name: nextName });
+            applyFolderRenamed(res.folder);
+            if (!dirty) setStatus("Folder renamed");
+          } catch (err) {
+            renderSidebar();
+            setStatus(err.message || "Rename failed", true);
+          }
+        }
+
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.stopPropagation();
+            finish(true);
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            finish(false);
+          }
+        });
+
+        input.addEventListener("blur", () => finish(true));
+        input.addEventListener("click", (e) => e.stopPropagation());
+
+        input.focus();
+        input.select();
       }
 
       function applyNoteRename(note) {
@@ -2027,6 +2477,7 @@
           id: note.id,
           filename: note.filename,
           updated_at: note.updated_at,
+          folder_id: note.folder_id ?? null,
         });
         sortNotesNewestFirst();
         renderSidebar();
@@ -2043,11 +2494,15 @@
           filenameChanged = existing.filename !== note.filename;
           existing.filename = note.filename;
           existing.updated_at = note.updated_at;
+          if ("folder_id" in note) {
+            existing.folder_id = note.folder_id ?? null;
+          }
         } else {
           notes.push({
             id: note.id,
             filename: note.filename,
             updated_at: note.updated_at,
+            folder_id: note.folder_id ?? null,
           });
         }
         sortNotesNewestFirst();
@@ -2091,7 +2546,9 @@
         try {
           const listRes = await wsRequest("list_notes");
           notes = Array.isArray(listRes.notes) ? listRes.notes : [];
+          folders = Array.isArray(listRes.folders) ? listRes.folders : [];
           sortNotesNewestFirst();
+          sortFoldersAlpha();
 
           const byId = new Map(notes.map((n) => [n.id, n]));
           for (const [id, entry] of Array.from(tabDocs.entries())) {
@@ -2195,6 +2652,12 @@
             handleRemoteNoteUpdated(msg.note);
           } else if (msg.type === "note_renamed" && msg.note) {
             applyNoteRename(msg.note);
+          } else if (msg.type === "note_moved" && msg.note) {
+            applyNoteMoved(msg.note);
+          } else if (msg.type === "folder_created" && msg.folder) {
+            applyFolderCreated(msg.folder);
+          } else if (msg.type === "folder_renamed" && msg.folder) {
+            applyFolderRenamed(msg.folder);
           } else if (msg.type === "image_updated" && msg.image) {
             handleRemoteImageUpdated(msg.image);
           }
@@ -2481,13 +2944,20 @@
         saveTabsState();
       }
 
-      async function createNote(filename) {
-        const res = await wsRequest("create_note", { filename });
+      async function createNote(filename, folderId = null) {
+        const payload = { filename };
+        if (folderId !== null && folderId !== undefined) {
+          payload.folder_id = folderId;
+        }
+        const res = await wsRequest("create_note", payload);
         return res.note;
       }
 
-      async function handleNewNote() {
-        const raw = prompt("Note name:");
+      async function handleNewNote(folderId = null) {
+        const targetFolderId = Number.isInteger(folderId) ? folderId : null;
+        const folderMeta =
+          targetFolderId !== null ? folders.find((f) => f.id === targetFolderId) : null;
+        const raw = prompt(folderMeta ? `Note name in "${folderMeta.name}":` : "Note name:");
         if (raw === null) return;
         const name = raw.trim();
         if (!name) return;
@@ -2496,7 +2966,11 @@
         await saveCurrentNote();
 
         try {
-          const created = await createNote(name);
+          const created = await createNote(name, targetFolderId);
+          if (targetFolderId !== null) {
+            foldedFolderIds.delete(targetFolderId);
+            saveFoldedFolders();
+          }
           if (!notes.some((n) => n.id === created.id)) {
             notes.unshift(created);
           }
@@ -4139,9 +4613,37 @@
 
       // Event bindings
       searchEl.addEventListener("input", renderSidebar);
+      foldAllBtn.addEventListener("click", toggleFoldAll);
 
       noteListEl.addEventListener("click", (e) => {
         if (e.target.closest(".note-rename-input")) return;
+
+        const addInFolderBtn = e.target.closest(".folder-add-note-btn");
+        if (addInFolderBtn) {
+          e.stopPropagation();
+          const group = addInFolderBtn.closest(".folder-group");
+          const fid = group ? Number(group.dataset.folderId) : NaN;
+          if (Number.isInteger(fid)) handleNewNote(fid);
+          return;
+        }
+
+        const renameFolderBtn = e.target.closest(".folder-rename-btn");
+        if (renameFolderBtn) {
+          e.stopPropagation();
+          const group = renameFolderBtn.closest(".folder-group");
+          const fid = group ? Number(group.dataset.folderId) : NaN;
+          if (Number.isInteger(fid)) startInlineFolderRename(fid);
+          return;
+        }
+
+        const folderHeader = e.target.closest(".folder-header");
+        if (folderHeader) {
+          const group = folderHeader.closest(".folder-group");
+          const fid = group ? Number(group.dataset.folderId) : NaN;
+          if (Number.isInteger(fid)) toggleFolderFold(fid);
+          return;
+        }
+
         const renameBtn = e.target.closest(".note-rename-btn");
         if (renameBtn) {
           e.stopPropagation();
@@ -4150,6 +4652,7 @@
           if (Number.isInteger(id)) startInlineRename(id);
           return;
         }
+
         const item = e.target.closest(".note-item");
         if (!item) return;
         const id = Number(item.dataset.id);
@@ -4159,12 +4662,84 @@
       });
 
       noteListEl.addEventListener("dblclick", (e) => {
+        const folderNameEl = e.target.closest(".folder-name");
+        if (folderNameEl) {
+          e.stopPropagation();
+          const group = folderNameEl.closest(".folder-group");
+          const fid = group ? Number(group.dataset.folderId) : NaN;
+          if (Number.isInteger(fid)) startInlineFolderRename(fid);
+          return;
+        }
         const nameEl = e.target.closest(".note-name");
         if (!nameEl) return;
         e.stopPropagation();
         const item = nameEl.closest(".note-item");
         const id = item ? Number(item.dataset.id) : NaN;
         if (Number.isInteger(id)) startInlineRename(id);
+      });
+
+      function clearSidebarDropHighlights() {
+        noteListEl.classList.remove("drop-target-root");
+        noteListEl.querySelectorAll(".folder-group.drop-target").forEach((el) => {
+          el.classList.remove("drop-target");
+        });
+      }
+
+      noteListEl.addEventListener("dragstart", (e) => {
+        const item = e.target.closest(".note-item");
+        if (!item || item.querySelector(".note-rename-input")) {
+          e.preventDefault();
+          return;
+        }
+        const id = Number(item.dataset.id);
+        if (!Number.isInteger(id)) return;
+        draggingNoteId = id;
+        if (e.dataTransfer) {
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", String(id));
+        }
+      });
+
+      noteListEl.addEventListener("dragover", (e) => {
+        if (draggingNoteId === null) return;
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+        clearSidebarDropHighlights();
+        const group = e.target.closest(".folder-group");
+        if (group) {
+          group.classList.add("drop-target");
+        } else {
+          noteListEl.classList.add("drop-target-root");
+        }
+      });
+
+      noteListEl.addEventListener("dragleave", (e) => {
+        if (draggingNoteId === null) return;
+        if (!noteListEl.contains(e.relatedTarget)) {
+          clearSidebarDropHighlights();
+        }
+      });
+
+      noteListEl.addEventListener("drop", (e) => {
+        if (draggingNoteId === null) return;
+        e.preventDefault();
+        const noteId = draggingNoteId;
+        draggingNoteId = null;
+        clearSidebarDropHighlights();
+        const group = e.target.closest(".folder-group");
+        if (group) {
+          const fid = Number(group.dataset.folderId);
+          if (Number.isInteger(fid)) {
+            moveNoteToFolder(noteId, fid);
+          }
+        } else {
+          moveNoteToFolder(noteId, null);
+        }
+      });
+
+      noteListEl.addEventListener("dragend", () => {
+        draggingNoteId = null;
+        clearSidebarDropHighlights();
       });
 
       tabStripEl.addEventListener("click", (e) => {
@@ -4197,7 +4772,7 @@
         }
       }, { passive: true });
 
-      newTabBtn.addEventListener("click", handleNewNote);
+      newTabBtn.addEventListener("click", () => handleNewNote(null));
 
       sidebarToggleBtn.addEventListener("click", () => {
         sidebarVisible = !sidebarVisible;
@@ -4228,7 +4803,8 @@
       });
 
       wideQuery.addEventListener("change", applyLayout);
-      newNoteBtn.addEventListener("click", handleNewNote);
+      newNoteBtn.addEventListener("click", () => handleNewNote(null));
+      newFolderBtn.addEventListener("click", handleNewFolder);
       exportBtn.addEventListener("click", handleExport);
       window.addEventListener("pagehide", flushOnUnload);
 
@@ -4239,7 +4815,9 @@
         try {
           const res = await wsRequest("list_notes");
           notes = Array.isArray(res.notes) ? res.notes : [];
+          folders = Array.isArray(res.folders) ? res.folders : [];
           sortNotesNewestFirst();
+          sortFoldersAlpha();
 
           if (notes.length === 0) {
             const first = await createNote("My Notes");

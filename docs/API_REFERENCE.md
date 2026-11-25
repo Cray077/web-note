@@ -47,7 +47,10 @@ All frames are UTF-8 JSON objects with a `"type"` field. Client requests may inc
     "type": "notes_list",
     "req_id": "1",
     "notes": [
-      {"id": 4, "filename": "TODO", "updated_at": "2026-11-25T14:30:00.123456Z"}
+      {"id": 4, "filename": "TODO", "updated_at": "2026-11-25T14:30:00.123456Z", "folder_id": 1}
+    ],
+    "folders": [
+      {"id": 1, "name": "Work", "created_at": "2026-11-25T14:25:00.000000Z"}
     ]
   }
   ```
@@ -56,22 +59,23 @@ All frames are UTF-8 JSON objects with a `"type"` field. Client requests may inc
 
 - **Client → Server:**
   ```json
-  {"type": "create_note", "req_id": "2", "filename": "Meeting Notes"}
+  {"type": "create_note", "req_id": "2", "filename": "Meeting Notes", "folder_id": 1}
   ```
-- **Validation:** `filename` must be a `str` whose trimmed length is `1..255` characters (`code: 400` otherwise).
+  (`folder_id` is optional; omit or pass `null` for a root-level note.)
+- **Validation:** `filename` must be a `str` whose trimmed length is `1..255` characters (`code: 400` otherwise). If `folder_id` is provided, it must reference an existing folder (`code: 404` otherwise).
 - **Server → Sender (`note_created`):**
   ```json
   {
     "type": "note_created",
     "req_id": "2",
-    "note": {"id": 5, "filename": "Meeting Notes", "updated_at": "2026-11-25T14:31:00.654321Z"}
+    "note": {"id": 5, "filename": "Meeting Notes", "updated_at": "2026-11-25T14:31:00.654321Z", "folder_id": 1}
   }
   ```
 - **Server → Other Clients (live broadcast):**
   ```json
   {
     "type": "note_created",
-    "note": {"id": 5, "filename": "Meeting Notes", "updated_at": "2026-11-25T14:31:00.654321Z"}
+    "note": {"id": 5, "filename": "Meeting Notes", "updated_at": "2026-11-25T14:31:00.654321Z", "folder_id": 1}
   }
   ```
 
@@ -150,6 +154,27 @@ Updates `notes.filename` in SQLite without touching `<NOTES_DIR>/<id>.md` on dis
     "note": {"id": 5, "filename": "Sprint Planning", "updated_at": "2026-11-25T14:32:12.000123Z"}
   }
   ```
+
+### `move_note`
+
+Moves a note into a folder (`folder_id: <int>`) or back to the root level (`folder_id: null`) without touching `<NOTES_DIR>/<id>.md` on disk, replies `note_moved`, and broadcasts `note_moved` to all other clients.
+
+- **Client → Server:** `{"type": "move_note", "req_id": "7", "id": 5, "folder_id": 1}`
+- **Server → Sender & Other Clients (`note_moved`):** `{"type": "note_moved", "note": {"id": 5, "filename": "Sprint Planning", "updated_at": "...", "folder_id": 1}}`
+
+### `create_folder`
+
+Creates a folder in SQLite, replies `folder_created`, and broadcasts `folder_created` to all other clients.
+
+- **Client → Server:** `{"type": "create_folder", "req_id": "8", "name": "Work"}`
+- **Server → Sender & Other Clients (`folder_created`):** `{"type": "folder_created", "folder": {"id": 1, "name": "Work", "created_at": "..."}}`
+
+### `rename_folder`
+
+Renames a folder in SQLite, replies `folder_renamed`, and broadcasts `folder_renamed` to all other clients.
+
+- **Client → Server:** `{"type": "rename_folder", "req_id": "9", "id": 1, "name": "Projects"}`
+- **Server → Sender & Other Clients (`folder_renamed`):** `{"type": "folder_renamed", "folder": {"id": 1, "name": "Projects", "created_at": "..."}}`
 
 ### `upload_image`
 

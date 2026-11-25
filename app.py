@@ -124,16 +124,32 @@ def init_db() -> None:
         conn = sqlite3.connect(get_db_path(), timeout=30.0)
         try:
             conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA foreign_keys=ON;")
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS folders (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name       TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS notes (
                     id         INTEGER PRIMARY KEY AUTOINCREMENT,
                     filename   TEXT NOT NULL,
                     path       TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    folder_id  INTEGER REFERENCES folders(id) ON DELETE SET NULL
                 )
                 """
             )
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(notes)").fetchall()}
+            if "folder_id" not in cols:
+                conn.execute(
+                    "ALTER TABLE notes ADD COLUMN folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL"
+                )
             conn.commit()
         finally:
             conn.close()
@@ -167,6 +183,14 @@ def now_iso() -> str:
 def parse_note_id(raw_id: object) -> int:
     if isinstance(raw_id, bool) or not isinstance(raw_id, int) or raw_id <= 0:
         raise AppError("Invalid note id", 400)
+    return raw_id
+
+
+def parse_folder_id(raw_id: object, *, allow_none: bool = False) -> int | None:
+    if raw_id is None and allow_none:
+        return None
+    if isinstance(raw_id, bool) or not isinstance(raw_id, int) or raw_id <= 0:
+        raise AppError("Invalid folder id", 400)
     return raw_id
 
 
@@ -259,7 +283,22 @@ def detect_image_ext(data: bytes) -> str | None:
     return None
 
 
-def safe_zip_name(filename: str, note_id: int, used_lower: set[str]) -> str:
+def safe_zip_folder_name(name: str, folder_id: int, used_lower: set[str]) -> str:
+    cleaned = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", name).strip().strip(".")
+    if not cleaned:
+        cleaned = f"folder-{folder_id}"
+    candidate = cleaned
+    counter = 2
+    while candidate.lower() in used_lower:
+        candidate = f"{cleaned} ({counter})"
+        counter += 1
+    used_lower.add(candidate.lower())
+    return candidate
+
+
+def safe_zip_name(
+    filename: str, note_id: int, used_lower: set[str], folder_prefix: str = ""
+) -> str:
     # Strip path separators, control characters, and illegal filename characters.
     cleaned = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", filename).strip().strip(".")
     if not cleaned:
@@ -270,10 +309,11 @@ def safe_zip_name(filename: str, note_id: int, used_lower: set[str]) -> str:
     else:
         stem = cleaned
 
-    candidate = f"{stem}.md"
+    prefix = f"{folder_prefix}/" if folder_prefix else ""
+    candidate = f"{prefix}{stem}.md"
     counter = 2
     while candidate.lower() in used_lower:
-        candidate = f"{stem} ({counter}).md"
+        candidate = f"{prefix}{stem} ({counter}).md"
         counter += 1
 
     used_lower.add(candidate.lower())
@@ -283,24 +323,79 @@ def safe_zip_name(filename: str, note_id: int, used_lower: set[str]) -> str:
 def op_list_notes() -> list[dict]:
     with closing(open_db()) as db:
         rows = db.execute(
-            "SELECT id, filename, updated_at FROM notes ORDER BY updated_at DESC, id DESC"
+            "SELECT id, filename, updated_at, folder_id FROM notes ORDER BY updated_at DESC, id DESC"
         ).fetchall()
     return [dict(row) for row in rows]
 
 
-def op_create_note(filename: object) -> dict:
+def op_list_folders() -> list[dict]:
+    with closing(open_db()) as db:
+        rows = db.execute(
+            "SELECT id, name, created_at FROM folders ORDER BY LOWER(name) ASC, id ASC"
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def op_create_folder(name: object) -> dict:
+    if not isinstance(name, str):
+        raise AppError("name must be a string", 400)
+    name = name.strip()
+    if not name or len(name) > MAX_FILENAME_LEN:
+        raise AppError("name must be between 1 and 255 characters", 400)
+
+    created_at = now_iso()
+    with closing(open_db()) as db:
+        cursor = db.execute(
+            "INSERT INTO folders (name, created_at) VALUES (?, ?)",
+            (name, created_at),
+        )
+        folder_id = cursor.lastrowid
+        db.commit()
+    return {"id": folder_id, "name": name, "created_at": created_at}
+
+
+def op_rename_folder(raw_id: object, name: object) -> dict:
+    folder_id = parse_folder_id(raw_id)
+    if not isinstance(name, str):
+        raise AppError("name must be a string", 400)
+    name = name.strip()
+    if not name or len(name) > MAX_FILENAME_LEN:
+        raise AppError("name must be between 1 and 255 characters", 400)
+
+    with closing(open_db()) as db:
+        row = db.execute(
+            "SELECT id, created_at FROM folders WHERE id = ?",
+            (folder_id,),
+        ).fetchone()
+        if row is None:
+            raise AppError("Folder not found", 404)
+        db.execute("UPDATE folders SET name = ? WHERE id = ?", (name, folder_id))
+        db.commit()
+    return {"id": row["id"], "name": name, "created_at": row["created_at"]}
+
+
+def op_create_note(filename: object, raw_folder_id: object = None) -> dict:
     if not isinstance(filename, str):
         raise AppError("filename must be a string", 400)
     filename = filename.strip()
     if not filename or len(filename) > MAX_FILENAME_LEN:
         raise AppError("filename must be between 1 and 255 characters", 400)
 
+    folder_id = parse_folder_id(raw_folder_id, allow_none=True)
+
     updated_at = now_iso()
     with closing(open_db()) as db:
+        if folder_id is not None:
+            folder_row = db.execute(
+                "SELECT id FROM folders WHERE id = ?",
+                (folder_id,),
+            ).fetchone()
+            if folder_row is None:
+                raise AppError("Folder not found", 404)
         try:
             cursor = db.execute(
-                "INSERT INTO notes (filename, path, updated_at) VALUES (?, '', ?)",
-                (filename, updated_at),
+                "INSERT INTO notes (filename, path, updated_at, folder_id) VALUES (?, '', ?, ?)",
+                (filename, updated_at, folder_id),
             )
             note_id = cursor.lastrowid
             file_path = note_file_path(note_id)
@@ -311,14 +406,19 @@ def op_create_note(filename: object) -> dict:
             db.rollback()
             raise
 
-    return {"id": note_id, "filename": filename, "updated_at": updated_at}
+    return {
+        "id": note_id,
+        "filename": filename,
+        "updated_at": updated_at,
+        "folder_id": folder_id,
+    }
 
 
 def op_get_note(raw_id: object) -> dict:
     note_id = parse_note_id(raw_id)
     with closing(open_db()) as db:
         row = db.execute(
-            "SELECT id, filename, updated_at FROM notes WHERE id = ?",
+            "SELECT id, filename, updated_at, folder_id FROM notes WHERE id = ?",
             (note_id,),
         ).fetchone()
     if row is None:
@@ -334,6 +434,7 @@ def op_get_note(raw_id: object) -> dict:
         "id": row["id"],
         "filename": row["filename"],
         "updated_at": row["updated_at"],
+        "folder_id": row["folder_id"],
         "content": content,
     }
 
@@ -348,7 +449,7 @@ def op_update_note(raw_id: object, content: object) -> tuple[dict, str]:
     with _get_note_lock(note_id):
         with closing(open_db()) as db:
             row = db.execute(
-                "SELECT id, filename FROM notes WHERE id = ?",
+                "SELECT id, filename, folder_id FROM notes WHERE id = ?",
                 (note_id,),
             ).fetchone()
             if row is None:
@@ -368,6 +469,7 @@ def op_update_note(raw_id: object, content: object) -> tuple[dict, str]:
             "id": row["id"],
             "filename": row["filename"],
             "updated_at": updated_at,
+            "folder_id": row["folder_id"],
         }
         return meta, content
 
@@ -383,7 +485,7 @@ def op_rename_note(raw_id: object, filename: object) -> dict:
     with _get_note_lock(note_id):
         with closing(open_db()) as db:
             row = db.execute(
-                "SELECT id, updated_at FROM notes WHERE id = ?",
+                "SELECT id, updated_at, folder_id FROM notes WHERE id = ?",
                 (note_id,),
             ).fetchone()
             if row is None:
@@ -399,6 +501,41 @@ def op_rename_note(raw_id: object, filename: object) -> dict:
             "id": row["id"],
             "filename": filename,
             "updated_at": row["updated_at"],
+            "folder_id": row["folder_id"],
+        }
+
+
+def op_move_note(raw_id: object, raw_folder_id: object) -> dict:
+    note_id = parse_note_id(raw_id)
+    folder_id = parse_folder_id(raw_folder_id, allow_none=True)
+
+    with _get_note_lock(note_id):
+        with closing(open_db()) as db:
+            row = db.execute(
+                "SELECT id, filename, updated_at FROM notes WHERE id = ?",
+                (note_id,),
+            ).fetchone()
+            if row is None:
+                raise AppError("Note not found", 404)
+            if folder_id is not None:
+                folder_row = db.execute(
+                    "SELECT id FROM folders WHERE id = ?",
+                    (folder_id,),
+                ).fetchone()
+                if folder_row is None:
+                    raise AppError("Folder not found", 404)
+
+            db.execute(
+                "UPDATE notes SET folder_id = ? WHERE id = ?",
+                (folder_id, note_id),
+            )
+            db.commit()
+
+        return {
+            "id": row["id"],
+            "filename": row["filename"],
+            "updated_at": row["updated_at"],
+            "folder_id": folder_id,
         }
 
 
@@ -471,9 +608,15 @@ def handle_ws_message(client: WSClient, msg: dict) -> None:
         if msg_type == "ping":
             reply({"type": "pong"})
         elif msg_type == "list_notes":
-            reply({"type": "notes_list", "notes": op_list_notes()})
+            reply(
+                {
+                    "type": "notes_list",
+                    "notes": op_list_notes(),
+                    "folders": op_list_folders(),
+                }
+            )
         elif msg_type == "create_note":
-            note = op_create_note(msg.get("filename"))
+            note = op_create_note(msg.get("filename"), msg.get("folder_id"))
             reply({"type": "note_created", "note": note})
             broadcast({"type": "note_created", "note": note}, exclude=client)
         elif msg_type == "get_note":
@@ -490,6 +633,18 @@ def handle_ws_message(client: WSClient, msg: dict) -> None:
             note = op_rename_note(msg.get("id"), msg.get("filename"))
             reply({"type": "note_renamed", "note": note})
             broadcast({"type": "note_renamed", "note": note}, exclude=client)
+        elif msg_type == "move_note":
+            note = op_move_note(msg.get("id"), msg.get("folder_id"))
+            reply({"type": "note_moved", "note": note})
+            broadcast({"type": "note_moved", "note": note}, exclude=client)
+        elif msg_type == "create_folder":
+            folder = op_create_folder(msg.get("name"))
+            reply({"type": "folder_created", "folder": folder})
+            broadcast({"type": "folder_created", "folder": folder}, exclude=client)
+        elif msg_type == "rename_folder":
+            folder = op_rename_folder(msg.get("id"), msg.get("name"))
+            reply({"type": "folder_renamed", "folder": folder})
+            broadcast({"type": "folder_renamed", "folder": folder}, exclude=client)
         elif msg_type == "upload_image":
             image, replaced = op_upload_image(
                 msg.get("data"),
@@ -595,11 +750,20 @@ def serve_user_image(username: str, filename: str):
 @app.route("/api/export", methods=["GET"])
 def export_notes():
     db = get_db()
+    folder_rows = db.execute(
+        "SELECT id, name FROM folders ORDER BY LOWER(name) ASC, id ASC"
+    ).fetchall()
     rows = db.execute(
-        "SELECT id, filename FROM notes ORDER BY updated_at DESC, id DESC"
+        "SELECT id, filename, folder_id FROM notes ORDER BY updated_at DESC, id DESC"
     ).fetchall()
 
     spool = tempfile.SpooledTemporaryFile(max_size=10 * 1024 * 1024)
+    used_folders: set[str] = {"images"}
+    folder_zip_names: dict[int, str] = {}
+    for frow in folder_rows:
+        folder_zip_names[frow["id"]] = safe_zip_folder_name(
+            frow["name"], frow["id"], used_folders
+        )
     used_names: set[str] = set()
 
     with zipfile.ZipFile(spool, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -609,7 +773,10 @@ def export_notes():
                 content = file_path.read_bytes()
             except FileNotFoundError:
                 content = b""
-            arcname = safe_zip_name(row["filename"], row["id"], used_names)
+            folder_prefix = folder_zip_names.get(row["folder_id"], "")
+            arcname = safe_zip_name(
+                row["filename"], row["id"], used_names, folder_prefix=folder_prefix
+            )
             zf.writestr(arcname, content)
 
         images_root = get_images_dir()
