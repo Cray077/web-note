@@ -8,6 +8,7 @@ env/
 
 # Local note storage & SQLite
 data/
+user-images/
 *.db
 *.db-wal
 *.db-shm

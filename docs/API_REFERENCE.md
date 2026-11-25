@@ -8,8 +8,9 @@ All endpoints are defined in `app.py`. Note listing, loading, creation, saving, 
 | --- | --- | --- | --- |
 | `GET` | `/` | `index` | Serve the single-page app (`static/index.html`) |
 | `GET` | `/static/<path>` | Flask built-in | Serve vendored JS/CSS assets under `static/` |
-| `WS` | `/ws` | `ws_endpoint` | Bidirectional JSON WebSocket for note CRUD & live updates |
-| `GET` | `/api/export` | `export_notes` | Download all notes as a single `.zip` archive |
+| `WS` | `/ws` | `ws_endpoint` | Bidirectional JSON WebSocket for note CRUD, image uploads & live updates |
+| `GET` | `/images/<username>/<filename>` | `serve_user_image` | Serve an uploaded user image from `<IMAGES_DIR>/<username>/<filename>` |
+| `GET` | `/api/export` | `export_notes` | Download all notes and uploaded images as a single `.zip` archive |
 
 Note: There is currently **no** delete operation.
 
@@ -17,8 +18,9 @@ Note: There is currently **no** delete operation.
 
 ## Global Limits & Error Format
 
-- **WebSocket message / request body limit:** `MAX_WS_MESSAGE_BYTES = MAX_NOTE_BYTES + 1 MiB` (`6 MiB`).
+- **WebSocket message / request body limit:** `MAX_WS_MESSAGE_BYTES = 16 MiB`.
 - **Note content limit:** `MAX_NOTE_BYTES = 5 * 1024 * 1024` (5 MB UTF-8 encoded).
+- **Image upload limit:** `MAX_IMAGE_BYTES = 10 * 1024 * 1024` (10 MB decoded binary; PNG, JPEG, GIF, WebP verified by magic bytes).
 - **Filename length limit:** `MAX_FILENAME_LEN = 255` characters after `.strip()`.
 - **WebSocket keepalive:** `SOCK_SERVER_OPTIONS = {"ping_interval": 25}` sends WebSocket ping frames every 25 seconds.
 - **Error response message (WebSocket):**
@@ -149,6 +151,31 @@ Updates `notes.filename` in SQLite without touching `<NOTES_DIR>/<id>.md` on dis
   }
   ```
 
+### `upload_image`
+
+Decodes a base64 image (or data URL), validates its magic bytes (`PNG`, `JPEG`, `GIF`, `WebP`) and 10 MB size limit, writes it atomically to `<IMAGES_DIR>/<username>/<filename>`, and replies with the image URL (`/images/<username>/<filename>`). When `replace` is provided for editing an existing local image, overwrites it atomically and broadcasts `image_updated` to all other connected clients.
+
+- **Client → Server:**
+  ```json
+  {"type": "upload_image", "req_id": "6", "data": "data:image/png;base64,...", "username": "user1", "replace": "a1b2c3.png"}
+  ```
+- **Server → Sender (`image_uploaded`):**
+  ```json
+  {
+    "type": "image_uploaded",
+    "req_id": "6",
+    "image": {"username": "user1", "filename": "a1b2c3.png", "url": "/images/user1/a1b2c3.png", "v": "1732546800123"}
+  }
+  ```
+- **Server → Other Clients (on replace, live broadcast `image_updated`):**
+  ```json
+  {
+    "type": "image_updated",
+    "image": {"username": "user1", "filename": "a1b2c3.png", "url": "/images/user1/a1b2c3.png", "v": "1732546800123"}
+  }
+  ```
+- **Errors:** `code: 400` (invalid username/filename/base64 or unsupported format), `code: 413` (`Image exceeds maximum size limit (10 MB)`).
+
 ### `ping`
 
 - **Client → Server:** `{"type": "ping", "req_id": "p1"}`
@@ -162,9 +189,13 @@ Updates `notes.filename` in SQLite without touching `<NOTES_DIR>/<id>.md` on dis
 
 Serves `static/index.html` (`200 OK`, `text/html; charset=utf-8`).
 
+### `GET /images/<username>/<filename>`
+
+Serves an uploaded image from `<IMAGES_DIR>/<username>/<filename>` after validating `username` (`^[a-zA-Z0-9_-]{1,64}$`), `filename` (`^[a-zA-Z0-9_-]{1,128}\.(png|jpg|jpeg|webp|gif)$`), and resolved directory containment. Sets `Cache-Control: no-cache` and sniffs magic bytes for `Content-Type`.
+
 ### `GET /api/export`
 
-Streams a `ZIP_DEFLATED` archive containing every note in `notes.db`, ordered newest-first, using a `SpooledTemporaryFile(max_size=10 MB)` buffer.
+Streams a `ZIP_DEFLATED` archive containing every note in `notes.db` (ordered newest-first) plus all uploaded user images under `images/<username>/<filename>`, using a `SpooledTemporaryFile(max_size=10 MB)` buffer.
 
 - **Archive member naming (`safe_zip_name()`):**
   - Replaces `[\\/:*?"<>|\x00-\x1f]` with `_`, trims whitespace and leading/trailing `.` characters (falls back to `note-<id>` if empty).

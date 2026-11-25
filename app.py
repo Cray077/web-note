@@ -1,24 +1,44 @@
+import base64
+import binascii
 import json
 import os
 import re
 import sqlite3
 import tempfile
 import threading
+import time
+import uuid
 import zipfile
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Flask, g, jsonify, send_file, send_from_directory
+from flask import Flask, abort, g, jsonify, send_file, send_from_directory
 from flask_sock import Sock
 from simple_websocket import ConnectionClosed
 
 MAX_NOTE_BYTES = 5 * 1024 * 1024  # 5 MB per note
-MAX_WS_MESSAGE_BYTES = MAX_NOTE_BYTES + 1024 * 1024
+MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB per image
+MAX_WS_MESSAGE_BYTES = 16 * 1024 * 1024  # 16 MB (allows base64-encoded images up to 10 MB)
 MAX_FILENAME_LEN = 255
+DEFAULT_USERNAME = os.environ.get("DEFAULT_USER", "user1")
+
+_USERNAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+_IMAGE_FILENAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,128}\.(png|jpg|jpeg|webp|gif)$", re.IGNORECASE)
+_DATA_URL_RE = re.compile(r"^data:(image/[a-zA-Z0-9.+-]+);base64,(.+)$", re.DOTALL)
+_IMAGE_MIMES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
 
 app = Flask(__name__, static_folder="static")
 app.config["NOTES_DIR"] = os.environ.get("NOTES_DIR", "/var/notes")
+app.config["IMAGES_DIR"] = os.environ.get(
+    "IMAGES_DIR", str(Path(__file__).resolve().parent / "user-images")
+)
 app.config["MAX_CONTENT_LENGTH"] = MAX_WS_MESSAGE_BYTES
 app.config["SOCK_SERVER_OPTIONS"] = {"ping_interval": 25}
 
@@ -82,6 +102,10 @@ def broadcast(payload: dict, exclude: WSClient | None = None) -> None:
 
 def get_notes_dir() -> Path:
     return Path(app.config["NOTES_DIR"]).resolve()
+
+
+def get_images_dir() -> Path:
+    return Path(app.config["IMAGES_DIR"]).resolve()
 
 
 def get_db_path() -> Path:
@@ -175,6 +199,64 @@ def atomic_write_text(path: Path, content: str) -> None:
         except OSError:
             pass
         raise
+
+
+def atomic_write_bytes(path: Path, data: bytes) -> None:
+    fd, tmp_name = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+    )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+
+def validate_username(raw_username: object) -> str:
+    if raw_username is None or raw_username == "":
+        username = DEFAULT_USERNAME
+    elif isinstance(raw_username, str):
+        username = raw_username.strip()
+    else:
+        raise AppError("Invalid username", 400)
+    if not _USERNAME_RE.match(username):
+        raise AppError("Invalid username", 400)
+    return username
+
+
+def image_file_path(username: str, filename: str) -> Path:
+    if not _USERNAME_RE.match(username) or not _IMAGE_FILENAME_RE.match(filename):
+        raise ValueError("Invalid image path")
+    images_root = get_images_dir()
+    user_dir = (images_root / username).resolve()
+    if user_dir.parent != images_root:
+        raise ValueError("Resolved user directory escapes images directory")
+    path = (user_dir / filename).resolve()
+    if path.parent != user_dir:
+        raise ValueError("Resolved image path escapes user directory")
+    return path
+
+
+def detect_image_ext(data: bytes) -> str | None:
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return ".gif"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return ".webp"
+    return None
 
 
 def safe_zip_name(filename: str, note_id: int, used_lower: set[str]) -> str:
@@ -320,6 +402,62 @@ def op_rename_note(raw_id: object, filename: object) -> dict:
         }
 
 
+def op_upload_image(
+    raw_data: object,
+    raw_username: object = None,
+    replace_filename: object = None,
+) -> tuple[dict, bool]:
+    if not isinstance(raw_data, str) or not raw_data:
+        raise AppError("Image data must be a non-empty string", 400)
+
+    username = validate_username(raw_username)
+
+    match = _DATA_URL_RE.match(raw_data.strip())
+    b64_payload = match.group(2) if match else raw_data.strip()
+    try:
+        raw_bytes = base64.b64decode(b64_payload, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise AppError("Invalid base64 image data", 400) from exc
+
+    if not raw_bytes:
+        raise AppError("Image data is empty", 400)
+    if len(raw_bytes) > MAX_IMAGE_BYTES:
+        raise AppError("Image exceeds maximum size limit (10 MB)", 413)
+
+    ext = detect_image_ext(raw_bytes)
+    if ext is None:
+        raise AppError("Unsupported image format (use PNG, JPEG, GIF, or WebP)", 400)
+
+    images_root = get_images_dir()
+    user_dir = (images_root / username).resolve()
+    if user_dir.parent != images_root:
+        raise AppError("Invalid username", 400)
+    user_dir.mkdir(parents=True, exist_ok=True)
+
+    replaced = False
+    if replace_filename is not None:
+        if not isinstance(replace_filename, str) or not _IMAGE_FILENAME_RE.match(replace_filename):
+            raise AppError("Invalid image filename", 400)
+        filename = replace_filename
+        file_path = image_file_path(username, filename)
+        replaced = file_path.exists()
+    else:
+        filename = f"{uuid.uuid4().hex}{ext}"
+        file_path = image_file_path(username, filename)
+
+    atomic_write_bytes(file_path, raw_bytes)
+    version = str(int(time.time() * 1000))
+    return (
+        {
+            "username": username,
+            "filename": filename,
+            "url": f"/images/{username}/{filename}",
+            "v": version,
+        },
+        replaced,
+    )
+
+
 def handle_ws_message(client: WSClient, msg: dict) -> None:
     msg_type = msg.get("type")
     req_id = msg.get("req_id")
@@ -352,6 +490,15 @@ def handle_ws_message(client: WSClient, msg: dict) -> None:
             note = op_rename_note(msg.get("id"), msg.get("filename"))
             reply({"type": "note_renamed", "note": note})
             broadcast({"type": "note_renamed", "note": note}, exclude=client)
+        elif msg_type == "upload_image":
+            image, replaced = op_upload_image(
+                msg.get("data"),
+                msg.get("username"),
+                msg.get("replace"),
+            )
+            reply({"type": "image_uploaded", "image": image})
+            if replaced:
+                broadcast({"type": "image_updated", "image": image}, exclude=client)
         else:
             reply({"type": "error", "error": f"Unknown message type: {msg_type}", "code": 400})
     except AppError as exc:
@@ -424,6 +571,27 @@ def index():
     return send_from_directory(app.static_folder, "index.html")
 
 
+@app.route("/images/<username>/<filename>", methods=["GET"])
+def serve_user_image(username: str, filename: str):
+    try:
+        file_path = image_file_path(username, filename)
+    except ValueError:
+        abort(404)
+    if not file_path.is_file():
+        abort(404)
+    try:
+        with file_path.open("rb") as handle:
+            detected_ext = detect_image_ext(handle.read(16))
+    except OSError:
+        abort(404)
+    mimetype = _IMAGE_MIMES.get(
+        detected_ext or file_path.suffix.lower(), "application/octet-stream"
+    )
+    response = send_file(file_path, mimetype=mimetype)
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 @app.route("/api/export", methods=["GET"])
 def export_notes():
     db = get_db()
@@ -443,6 +611,20 @@ def export_notes():
                 content = b""
             arcname = safe_zip_name(row["filename"], row["id"], used_names)
             zf.writestr(arcname, content)
+
+        images_root = get_images_dir()
+        if images_root.is_dir():
+            for user_dir in sorted(images_root.iterdir(), key=lambda p: p.name):
+                if not user_dir.is_dir() or not _USERNAME_RE.match(user_dir.name):
+                    continue
+                for img_file in sorted(user_dir.iterdir(), key=lambda p: p.name):
+                    if not img_file.is_file() or not _IMAGE_FILENAME_RE.match(img_file.name):
+                        continue
+                    try:
+                        img_bytes = img_file.read_bytes()
+                    except OSError:
+                        continue
+                    zf.writestr(f"images/{user_dir.name}/{img_file.name}", img_bytes)
 
     spool.seek(0)
     return send_file(

@@ -743,8 +743,340 @@
       color: #57606a;
     }
 
+    .markdown a {
+      color: #2563eb;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+
+    .markdown a:hover {
+      color: #1d4ed8;
+    }
+
     .markdown img {
       max-width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    /* Interactive image wrapper in live preview */
+    .img-wrap {
+      position: relative;
+      display: inline-block;
+      max-width: 100%;
+      margin: 0.25em 0;
+      border-radius: 4px;
+      vertical-align: middle;
+      user-select: none;
+    }
+
+    .img-wrap:hover,
+    .img-wrap.resizing {
+      outline: 2px solid rgba(59, 130, 246, 0.55);
+      outline-offset: 2px;
+    }
+
+    .img-toolbar {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      padding: 3px 4px;
+      background: rgba(17, 24, 39, 0.86);
+      border-radius: 6px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.12s ease;
+      z-index: 5;
+    }
+
+    .img-wrap:hover .img-toolbar,
+    .img-wrap:focus-within .img-toolbar {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .img-tool-btn {
+      border: none;
+      background: transparent;
+      color: #f9fafb;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 500;
+      line-height: 1;
+      padding: 4px 6px;
+      border-radius: 4px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .img-tool-btn:hover {
+      background: rgba(255, 255, 255, 0.18);
+    }
+
+    .img-resize-handle {
+      position: absolute;
+      right: -5px;
+      bottom: -5px;
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      background: #2563eb;
+      border: 2px solid #ffffff;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+      cursor: nwse-resize;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.12s ease;
+      z-index: 5;
+    }
+
+    .img-wrap:hover .img-resize-handle,
+    .img-wrap.resizing .img-resize-handle {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .img-size-badge {
+      position: absolute;
+      left: 6px;
+      bottom: 6px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(17, 24, 39, 0.85);
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 500;
+      line-height: 1.3;
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    /* Modals (Insert Image & Image Editor) */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 2000;
+      background: rgba(15, 23, 42, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .modal-dialog {
+      background: #ffffff;
+      border-radius: 8px;
+      box-shadow: 0 14px 36px rgba(15, 23, 42, 0.25);
+      width: 100%;
+      max-width: 460px;
+      max-height: 92vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .modal-dialog.modal-wide {
+      max-width: 820px;
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .modal-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #111827;
+      margin: 0;
+    }
+
+    .modal-close {
+      border: none;
+      background: transparent;
+      color: #6b7280;
+      font-size: 20px;
+      line-height: 1;
+      padding: 2px 6px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .modal-close:hover {
+      background: #f3f4f6;
+      color: #111827;
+    }
+
+    .modal-body {
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .modal-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 16px;
+      border-top: 1px solid #e5e7eb;
+      background: #f9fafb;
+    }
+
+    .modal-footer-actions {
+      display: flex;
+      gap: 8px;
+      margin-left: auto;
+    }
+
+    .upload-dropzone {
+      border: 2px dashed #cbd5e1;
+      border-radius: 8px;
+      padding: 24px 16px;
+      text-align: center;
+      background: #f8fafc;
+      color: #475569;
+      cursor: pointer;
+      transition: border-color 0.12s ease, background 0.12s ease;
+    }
+
+    .upload-dropzone:hover,
+    .upload-dropzone.dragover {
+      border-color: #3b82f6;
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+
+    .upload-dropzone-title {
+      font-weight: 600;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+
+    .upload-dropzone-sub {
+      font-size: 12px;
+      color: #64748b;
+    }
+
+    .field-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 4px;
+    }
+
+    .field-input {
+      width: 100%;
+      padding: 7px 10px;
+      border: 1px solid #cfd6df;
+      border-radius: 5px;
+      font: inherit;
+      font-size: 13px;
+      color: #1f2328;
+      outline: none;
+    }
+
+    .field-input:focus {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+    }
+
+    .field-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .img-editor-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 10px 14px;
+      border-bottom: 1px solid #e5e7eb;
+      background: #f9fafb;
+    }
+
+    .img-editor-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .img-editor-sep {
+      width: 1px;
+      height: 20px;
+      background: #d1d5db;
+      margin: 0 4px;
+    }
+
+    .img-editor-dim {
+      width: 68px;
+      padding: 4px 6px;
+      border: 1px solid #cfd6df;
+      border-radius: 4px;
+      font: inherit;
+      font-size: 12.5px;
+      color: #1f2328;
+    }
+
+    .swatch-btn {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      border: 2px solid #d1d5db;
+      padding: 0;
+      cursor: pointer;
+    }
+
+    .swatch-btn.active {
+      border-color: #111827;
+      box-shadow: 0 0 0 2px #ffffff, 0 0 0 4px #2563eb;
+    }
+
+    .img-editor-stage {
+      flex: 1 1 auto;
+      min-height: 260px;
+      max-height: 58vh;
+      overflow: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      background:
+        linear-gradient(45deg, #f3f4f6 25%, transparent 25%),
+        linear-gradient(-45deg, #f3f4f6 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #f3f4f6 75%),
+        linear-gradient(-45deg, transparent 75%, #f3f4f6 75%);
+      background-size: 16px 16px;
+      background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+      background-color: #e5e7eb;
+    }
+
+    #img-editor-canvas {
+      max-width: 100%;
+      max-height: 54vh;
+      height: auto;
+      width: auto;
+      background: transparent;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+      cursor: crosshair;
+      touch-action: none;
+    }
+
+    .img-editor-info {
+      font-size: 12px;
+      color: #6b7280;
     }
   </style>
 </head>
@@ -784,6 +1116,92 @@
   <ul id="preview-slash-menu" class="slash-menu" role="listbox" aria-label="Insert block" hidden></ul>
   <ul id="col-type-menu" class="slash-menu col-type-menu" role="menu" aria-label="Column type" hidden></ul>
 
+  <div id="image-upload-modal" class="modal-backdrop" hidden>
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="image-upload-title">
+      <div class="modal-header">
+        <h3 id="image-upload-title" class="modal-title">Insert Image</h3>
+        <button id="image-upload-close" class="modal-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="image-dropzone" class="upload-dropzone" tabindex="0" role="button">
+          <div class="upload-dropzone-title">Click to choose an image or drag &amp; drop</div>
+          <div class="upload-dropzone-sub">PNG, JPEG, GIF, or WebP (max 10 MB) &mdash; saved to /images/user1/</div>
+        </div>
+        <input id="image-file-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+        <div>
+          <label class="field-label" for="image-alt-input">Alt text (optional)</label>
+          <input id="image-alt-input" class="field-input" type="text" placeholder="Describe the image">
+        </div>
+        <div>
+          <label class="field-label" for="image-url-input">Or insert from URL</label>
+          <div class="field-row">
+            <input id="image-url-input" class="field-input" type="text" placeholder="https://example.com/photo.png">
+            <button id="image-url-insert-btn" class="btn btn-sm" type="button">Insert URL</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="modal-footer-actions">
+          <button id="image-upload-cancel" class="btn btn-sm" type="button">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="image-editor-modal" class="modal-backdrop" hidden>
+    <div class="modal-dialog modal-wide" role="dialog" aria-modal="true" aria-labelledby="image-editor-title">
+      <div class="modal-header">
+        <h3 id="image-editor-title" class="modal-title">Edit Image</h3>
+        <button id="image-editor-close" class="modal-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="img-editor-controls">
+        <div class="img-editor-row">
+          <button id="ie-rot-left" class="btn btn-sm" type="button" title="Rotate 90° left">&#8634; -90&deg;</button>
+          <button id="ie-rot-right" class="btn btn-sm" type="button" title="Rotate 90° right">&#8635; +90&deg;</button>
+          <button id="ie-flip-h" class="btn btn-sm" type="button" title="Flip horizontal">&#8644; Flip H</button>
+          <button id="ie-flip-v" class="btn btn-sm" type="button" title="Flip vertical">&#8645; Flip V</button>
+          <span class="img-editor-sep"></span>
+          <label class="img-editor-info" for="ie-width">W:</label>
+          <input id="ie-width" class="img-editor-dim" type="number" min="32" max="4096">
+          <label class="img-editor-info" for="ie-height">H:</label>
+          <input id="ie-height" class="img-editor-dim" type="number" min="32" max="4096">
+          <button id="ie-scale-50" class="btn btn-sm" type="button">50%</button>
+          <button id="ie-scale-75" class="btn btn-sm" type="button">75%</button>
+          <button id="ie-scale-100" class="btn btn-sm" type="button">100%</button>
+        </div>
+        <div class="img-editor-row">
+          <span class="img-editor-info">Scribble:</span>
+          <button class="swatch-btn active" type="button" data-color="#ef4444" style="background:#ef4444" title="Red"></button>
+          <button class="swatch-btn" type="button" data-color="#2563eb" style="background:#2563eb" title="Blue"></button>
+          <button class="swatch-btn" type="button" data-color="#16a34a" style="background:#16a34a" title="Green"></button>
+          <button class="swatch-btn" type="button" data-color="#eab308" style="background:#eab308" title="Yellow"></button>
+          <button class="swatch-btn" type="button" data-color="#111827" style="background:#111827" title="Black"></button>
+          <button class="swatch-btn" type="button" data-color="#ffffff" style="background:#ffffff" title="White"></button>
+          <span class="img-editor-sep"></span>
+          <label class="img-editor-info" for="ie-brush-size">Size:</label>
+          <select id="ie-brush-size" class="img-editor-dim" style="width:auto">
+            <option value="3">Thin</option>
+            <option value="6" selected>Medium</option>
+            <option value="12">Thick</option>
+            <option value="22">Marker</option>
+          </select>
+          <button id="ie-undo-stroke" class="btn btn-sm" type="button">Undo scribble</button>
+          <button id="ie-clear-strokes" class="btn btn-sm" type="button">Clear scribbles</button>
+        </div>
+      </div>
+      <div class="img-editor-stage">
+        <canvas id="img-editor-canvas"></canvas>
+      </div>
+      <div class="modal-footer">
+        <span id="ie-info" class="img-editor-info"></span>
+        <div class="modal-footer-actions">
+          <button id="image-editor-cancel" class="btn btn-sm" type="button">Cancel</button>
+          <button id="image-editor-save" class="btn btn-sm btn-primary" type="button">Save Image</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="/static/vendor/marked.min.js"></script>
   <script src="/static/vendor/purify.min.js"></script>
   <script src="/static/vendor/turndown.min.js"></script>
@@ -806,6 +1224,8 @@
       const WS_RECONNECT_BASE_MS = 500;
       const WS_RECONNECT_MAX_MS = 5000;
       const WS_REQUEST_TIMEOUT_MS = 15000;
+      const DEFAULT_USER = "user1";
+      const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
       const sidebarEl = document.getElementById("sidebar");
       const searchEl = document.getElementById("search");
@@ -824,6 +1244,23 @@
       const previewEl = document.getElementById("preview");
       const previewSlashMenuEl = document.getElementById("preview-slash-menu");
       const colTypeMenuEl = document.getElementById("col-type-menu");
+      const imageUploadModalEl = document.getElementById("image-upload-modal");
+      const imageUploadCloseBtn = document.getElementById("image-upload-close");
+      const imageUploadCancelBtn = document.getElementById("image-upload-cancel");
+      const imageDropzoneEl = document.getElementById("image-dropzone");
+      const imageFileInputEl = document.getElementById("image-file-input");
+      const imageAltInputEl = document.getElementById("image-alt-input");
+      const imageUrlInputEl = document.getElementById("image-url-input");
+      const imageUrlInsertBtn = document.getElementById("image-url-insert-btn");
+      const imageEditorModalEl = document.getElementById("image-editor-modal");
+      const imageEditorCloseBtn = document.getElementById("image-editor-close");
+      const imageEditorCancelBtn = document.getElementById("image-editor-cancel");
+      const imageEditorSaveBtn = document.getElementById("image-editor-save");
+      const ieCanvasEl = document.getElementById("img-editor-canvas");
+      const ieWidthInputEl = document.getElementById("ie-width");
+      const ieHeightInputEl = document.getElementById("ie-height");
+      const ieBrushSizeEl = document.getElementById("ie-brush-size");
+      const ieInfoEl = document.getElementById("ie-info");
 
       const wideQuery = window.matchMedia("(min-width: 900px)");
 
@@ -846,6 +1283,11 @@
       let colTypeTarget = null;
       let activeTypedCell = null;
       let renamingNoteId = null;
+
+      const imageVersions = new Map();
+      let pendingImageInsert = null;
+      let imageEditorState = null;
+      let activeImgResize = null;
 
       let ws = null;
       let wsInitialized = false;
@@ -887,6 +1329,39 @@
       turndown.addRule("strikethrough", {
         filter: ["del", "s", "strike"],
         replacement: (content) => `~~${content}~~`,
+      });
+      function stripImageVersion(src) {
+        if (!src) return "";
+        if (src.startsWith("/images/")) {
+          return src.split("?")[0];
+        }
+        return src;
+      }
+
+      turndown.addRule("imgUiIgnore", {
+        filter: (node) =>
+          node.nodeType === Node.ELEMENT_NODE &&
+          (node.classList.contains("img-toolbar") ||
+            node.classList.contains("img-resize-handle") ||
+            node.classList.contains("img-size-badge")),
+        replacement: () => "",
+      });
+      turndown.addRule("imgUiUnwrap", {
+        filter: (node) =>
+          node.nodeType === Node.ELEMENT_NODE && node.classList.contains("img-wrap"),
+        replacement: (content) => content,
+      });
+      turndown.addRule("cleanImage", {
+        filter: "img",
+        replacement: (_content, node) => {
+          const alt = (node.getAttribute("alt") || "").replace(/[\[\]]/g, "");
+          const rawSrc = node.dataset.cleanSrc || node.getAttribute("src") || "";
+          const src = stripImageVersion(rawSrc);
+          const title = node.getAttribute("title") || "";
+          if (!src) return "";
+          const titlePart = title ? ` "${title.replace(/"/g, '\\"')}"` : "";
+          return `![${alt}](${src}${titlePart})`;
+        },
       });
       turndown.addRule("tableUiIgnore", {
         filter: (node) =>
@@ -1043,6 +1518,9 @@
         if (typeof enhanceTables === "function") {
           enhanceTables(previewEl);
         }
+        if (typeof enhanceImages === "function") {
+          enhanceImages(previewEl);
+        }
         previewEl.scrollTop = prevScroll;
       }
 
@@ -1080,8 +1558,8 @@
         { id: "code", name: "Code block", keywords: "block pre fence snippet", insert: "```\n{c}\n```" },
         { id: "table", name: "Table", keywords: "grid columns rows", insert: "| {c}Column | Column | Column |\n| --- | --- | --- |\n|  |  |  |" },
         { id: "divider", name: "Divider", keywords: "hr line rule separator", insert: "---\n{c}" },
-        { id: "link", name: "Link", keywords: "url href anchor", insert: "[{c}text](url)", select: "text" },
-        { id: "image", name: "Image", keywords: "img picture photo", insert: "![{c}alt](url)", select: "alt" },
+        { id: "link", name: "Link", keywords: "links url href anchor", insert: "[{c}text](url)", select: "text" },
+        { id: "image", name: "Image", keywords: "images img picture photo upload", insert: "![{c}alt](url)", select: "alt" },
       ];
 
       function filterSlashItems(query) {
@@ -1106,6 +1584,11 @@
             text: item.insert,
             displayText: item.name,
             hint: (editor, data) => {
+              if (item.id === "image") {
+                editor.replaceRange("", data.from, data.to);
+                openImageUploadModal({ mode: "cm", pos: editor.getCursor() });
+                return;
+              }
               const at = item.insert.indexOf("{c}");
               const text = item.insert.replace("{c}", "");
               const baseIndex = editor.indexFromPos(data.from);
@@ -1161,10 +1644,18 @@
         }
       });
 
-      // Paste URL over selected text -> [selected text](url)
+      // Paste image file or URL over selected text -> ![alt](url) or [selected text](url)
       cm.on("paste", (editor, event) => {
+        const clipboard = event.clipboardData || window.clipboardData;
+        const imgFile = extractClipboardImage(clipboard);
+        if (imgFile) {
+          event.preventDefault();
+          const pos = editor.getCursor();
+          uploadAndInsertImageFile(imgFile, "", { mode: "cm", pos });
+          return;
+        }
         if (!editor.somethingSelected()) return;
-        const pasted = (event.clipboardData || window.clipboardData)?.getData("text")?.trim();
+        const pasted = clipboard?.getData("text")?.trim();
         if (pasted && /^https?:\/\/\S+$/.test(pasted)) {
           event.preventDefault();
           const sel = editor.getSelection();
@@ -1704,6 +2195,8 @@
             handleRemoteNoteUpdated(msg.note);
           } else if (msg.type === "note_renamed" && msg.note) {
             applyNoteRename(msg.note);
+          } else if (msg.type === "image_updated" && msg.image) {
+            handleRemoteImageUpdated(msg.image);
           }
         });
 
@@ -2133,6 +2626,14 @@
         }
       }
 
+      function normalizeLinkUrl(raw) {
+        const trimmed = (raw || "").trim();
+        if (!trimmed || /^https?:\/\/$/i.test(trimmed)) return "";
+        if (/^(https?:\/\/|mailto:|\/)/i.test(trimmed)) return trimmed;
+        if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return "";
+        return `https://${trimmed}`;
+      }
+
       function applyPreviewSlashItem(item) {
         if (!previewSlash) return;
         const { node, startOffset, endOffset } = previewSlash;
@@ -2154,8 +2655,8 @@
 
         if (item.id === "link") {
           const rawUrl = prompt("Link URL:", "https://");
-          const url = rawUrl ? rawUrl.trim() : "";
-          if (!url || !/^(https?:\/\/|\/)/i.test(url)) {
+          const url = normalizeLinkUrl(rawUrl);
+          if (!url) {
             syncPreviewToEditor();
             return;
           }
@@ -2172,23 +2673,7 @@
         }
 
         if (item.id === "image") {
-          const rawUrl = prompt("Image URL:", "https://");
-          const url = rawUrl ? rawUrl.trim() : "";
-          if (!url || !/^(https?:\/\/|\/)/i.test(url)) {
-            syncPreviewToEditor();
-            return;
-          }
-          const alt = (prompt("Image alt text:", "image") || "").trim();
-          const pImg = document.createElement("p");
-          const img = document.createElement("img");
-          img.src = url;
-          img.alt = alt;
-          pImg.appendChild(img);
-          const afterP = makeEmptyP();
-          insertPreviewBlock(node, [pImg, afterP]);
-          previewEl.focus();
-          setCaret(afterP, 0);
-          syncPreviewToEditor();
+          openImageUploadModal({ mode: "preview", node });
           return;
         }
 
@@ -2774,14 +3259,47 @@
       }, { passive: true });
 
       previewEl.addEventListener("paste", (e) => {
+        const clipboard = e.clipboardData || window.clipboardData;
+        const imgFile = extractClipboardImage(clipboard);
+        if (imgFile) {
+          e.preventDefault();
+          closePreviewSlashMenu();
+          const sel = window.getSelection();
+          const anchor = sel && sel.anchorNode ? sel.anchorNode : previewEl.lastChild;
+          uploadAndInsertImageFile(imgFile, "", { mode: "preview", node: anchor });
+          return;
+        }
         e.preventDefault();
         closePreviewSlashMenu();
-        const text = (e.clipboardData || window.clipboardData)?.getData("text/plain") || "";
+        const text = clipboard?.getData("text/plain") || "";
         if (!text) return;
         document.execCommand("insertText", false, text);
       });
 
       previewEl.addEventListener("mousedown", (e) => {
+        const imgToolBtn = e.target.closest(".img-tool-btn");
+        if (imgToolBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          const wrap = imgToolBtn.closest(".img-wrap");
+          const img = wrap ? wrap.querySelector("img") : null;
+          const action = imgToolBtn.dataset.imgAction;
+          if (img && action) {
+            handleInlineImageAction(img, action);
+          }
+          return;
+        }
+        const resizeHandle = e.target.closest(".img-resize-handle");
+        if (resizeHandle) {
+          e.preventDefault();
+          e.stopPropagation();
+          const wrap = resizeHandle.closest(".img-wrap");
+          const img = wrap ? wrap.querySelector("img") : null;
+          if (wrap && img) {
+            startInlineImageResize(e, wrap, img);
+          }
+          return;
+        }
         const addRowBtn = e.target.closest(".table-add-row");
         if (addRowBtn) {
           e.preventDefault();
@@ -2812,7 +3330,11 @@
       previewEl.addEventListener("click", (e) => {
         closePreviewSlashMenu();
         const link = e.target.closest("a[href]");
-        if (link && (e.ctrlKey || e.metaKey)) {
+        if (!link || e.altKey) return;
+        const sel = window.getSelection();
+        if (sel && !sel.isCollapsed) return;
+        const rawHref = (link.getAttribute("href") || "").trim();
+        if (/^(https?:\/\/|mailto:|\/)/i.test(rawHref)) {
           e.preventDefault();
           window.open(link.href, "_blank", "noopener,noreferrer");
         }
@@ -2862,9 +3384,9 @@
             document.execCommand("italic");
           } else if (key === "k") {
             e.preventDefault();
-            const url = prompt("Link URL:", "https://");
-            if (url && /^https?:\/\//i.test(url.trim())) {
-              document.execCommand("createLink", false, url.trim());
+            const url = normalizeLinkUrl(prompt("Link URL:", "https://"));
+            if (url) {
+              document.execCommand("createLink", false, url);
               syncPreviewToEditor();
             }
           }
@@ -2922,6 +3444,705 @@
           e.preventDefault();
           document.execCommand(e.shiftKey ? "outdent" : "indent");
         }
+      });
+
+      // Interactive images: upload, inline resize/flip/rotate, and scribble editor modal
+      function parseLocalImageUrl(cleanSrc) {
+        const m = /^\/images\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+\.(png|jpg|jpeg|webp|gif))$/i.exec(
+          cleanSrc || ""
+        );
+        if (!m) return null;
+        return { username: m[1], filename: m[2], ext: "." + m[3].toLowerCase() };
+      }
+
+      function extractClipboardImage(clipboard) {
+        if (!clipboard || !clipboard.items) return null;
+        for (const item of clipboard.items) {
+          if (item.kind === "file" && item.type && item.type.startsWith("image/")) {
+            return item.getAsFile();
+          }
+        }
+        return null;
+      }
+
+      function readFileAsDataUrl(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ""));
+          reader.onerror = () => reject(new Error("Failed to read image file"));
+          reader.readAsDataURL(file);
+        });
+      }
+
+      function loadImageElement(src) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          if (!src.startsWith("/") && !src.startsWith("data:")) {
+            img.crossOrigin = "anonymous";
+          }
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error("Failed to load image for editing"));
+          img.src = src;
+        });
+      }
+
+      function canvasToDataUrl(canvas, ext) {
+        if (ext === ".jpg" || ext === ".jpeg") {
+          const flat = document.createElement("canvas");
+          flat.width = canvas.width;
+          flat.height = canvas.height;
+          const fctx = flat.getContext("2d");
+          fctx.fillStyle = "#ffffff";
+          fctx.fillRect(0, 0, flat.width, flat.height);
+          fctx.drawImage(canvas, 0, 0);
+          return flat.toDataURL("image/jpeg", 0.92);
+        }
+        if (ext === ".webp") {
+          const url = canvas.toDataURL("image/webp", 0.92);
+          if (url.startsWith("data:image/webp")) return url;
+        }
+        return canvas.toDataURL("image/png");
+      }
+
+      function getVersionedSrc(cleanSrc) {
+        const v = imageVersions.get(cleanSrc);
+        if (v && cleanSrc.startsWith("/images/")) {
+          return `${cleanSrc}?v=${encodeURIComponent(v)}`;
+        }
+        return cleanSrc;
+      }
+
+      function refreshImagesForUrl(cleanSrc) {
+        const versioned = getVersionedSrc(cleanSrc);
+        previewEl.querySelectorAll("img").forEach((img) => {
+          const base = stripImageVersion(img.dataset.cleanSrc || img.getAttribute("src") || "");
+          if (base === cleanSrc) {
+            img.dataset.cleanSrc = cleanSrc;
+            img.src = versioned;
+          }
+        });
+      }
+
+      function handleRemoteImageUpdated(image) {
+        if (!image || typeof image.url !== "string") return;
+        const cleanSrc = stripImageVersion(image.url);
+        if (image.v) {
+          imageVersions.set(cleanSrc, String(image.v));
+        }
+        refreshImagesForUrl(cleanSrc);
+      }
+
+      function enhanceImages(root) {
+        const imgs = Array.from(root.querySelectorAll("img"));
+        for (const img of imgs) {
+          const rawSrc = img.getAttribute("src") || "";
+          const cleanSrc = stripImageVersion(img.dataset.cleanSrc || rawSrc);
+          img.dataset.cleanSrc = cleanSrc;
+          const versioned = getVersionedSrc(cleanSrc);
+          if (versioned && img.getAttribute("src") !== versioned) {
+            img.setAttribute("src", versioned);
+          }
+
+          if (img.parentElement && img.parentElement.classList.contains("img-wrap")) {
+            continue;
+          }
+
+          const wrap = document.createElement("span");
+          wrap.className = "img-wrap";
+          wrap.setAttribute("contenteditable", "false");
+
+          const toolbar = document.createElement("span");
+          toolbar.className = "img-toolbar";
+          toolbar.setAttribute("contenteditable", "false");
+
+          const buttons = [
+            { action: "rot-left", label: "\u21BA", title: "Rotate 90° left" },
+            { action: "rot-right", label: "\u21BB", title: "Rotate 90° right" },
+            { action: "flip-h", label: "\u21C4", title: "Flip horizontal" },
+            { action: "flip-v", label: "\u21C5", title: "Flip vertical" },
+            { action: "edit", label: "\u270E Edit", title: "Resize, transform & scribble" },
+          ];
+          for (const b of buttons) {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "img-tool-btn";
+            btn.dataset.imgAction = b.action;
+            btn.title = b.title;
+            btn.textContent = b.label;
+            toolbar.appendChild(btn);
+          }
+
+          const handle = document.createElement("span");
+          handle.className = "img-resize-handle";
+          handle.setAttribute("contenteditable", "false");
+          handle.title = "Drag to resize";
+
+          const badge = document.createElement("span");
+          badge.className = "img-size-badge";
+          badge.setAttribute("contenteditable", "false");
+          badge.hidden = true;
+
+          img.parentNode.insertBefore(wrap, img);
+          wrap.appendChild(img);
+          wrap.appendChild(toolbar);
+          wrap.appendChild(handle);
+          wrap.appendChild(badge);
+        }
+      }
+
+      function insertImageIntoNote(url, alt, target) {
+        const cleanAlt = (alt || "image").replace(/[\[\]]/g, "").trim() || "image";
+        const cleanUrl = stripImageVersion(url);
+        if (!target || target.mode === "cm") {
+          const pos = target && target.pos ? target.pos : cm.getCursor();
+          const md = `![${cleanAlt}](${cleanUrl})`;
+          cm.replaceRange(md, pos, pos);
+          cm.focus();
+          return;
+        }
+
+        const pImg = document.createElement("p");
+        const img = document.createElement("img");
+        img.dataset.cleanSrc = cleanUrl;
+        img.src = getVersionedSrc(cleanUrl);
+        img.alt = cleanAlt;
+        pImg.appendChild(img);
+
+        const afterP = document.createElement("p");
+        afterP.appendChild(document.createElement("br"));
+
+        if (target.node && previewEl.contains(target.node)) {
+          insertPreviewBlock(target.node, [pImg, afterP]);
+        } else {
+          previewEl.appendChild(pImg);
+          previewEl.appendChild(afterP);
+        }
+        enhanceImages(previewEl);
+        previewEl.focus();
+        setCaret(afterP, 0);
+        syncPreviewToEditor();
+      }
+
+      async function uploadAndInsertImageFile(file, altOverride, target) {
+        if (!file) return;
+        if (file.size > MAX_IMAGE_BYTES) {
+          setStatus("Image exceeds 10 MB limit", true);
+          return;
+        }
+        setStatus("Uploading image...");
+        try {
+          const dataUrl = await readFileAsDataUrl(file);
+          const res = await wsRequest("upload_image", {
+            data: dataUrl,
+            username: DEFAULT_USER,
+          });
+          const image = res.image;
+          if (image && image.v) {
+            imageVersions.set(image.url, String(image.v));
+          }
+          const stem = (file.name || "").replace(/\.[^.]+$/, "").trim();
+          const alt = (altOverride || "").trim() || stem || "image";
+          insertImageIntoNote(image.url, alt, target);
+          setStatus("Image uploaded");
+        } catch (err) {
+          setStatus(err.message || "Image upload failed", true);
+        }
+      }
+
+      function closeImageUploadModal() {
+        pendingImageInsert = null;
+        imageUploadModalEl.hidden = true;
+        imageFileInputEl.value = "";
+        imageAltInputEl.value = "";
+        imageUrlInputEl.value = "";
+        imageDropzoneEl.classList.remove("dragover");
+      }
+
+      function openImageUploadModal(target) {
+        if (activeId === null) return;
+        pendingImageInsert = target;
+        imageAltInputEl.value = "";
+        imageUrlInputEl.value = "";
+        imageFileInputEl.value = "";
+        imageUploadModalEl.hidden = false;
+        imageDropzoneEl.focus();
+      }
+
+      async function saveTransformedCanvas(imgEl, canvas) {
+        const cleanSrc = stripImageVersion(imgEl.dataset.cleanSrc || imgEl.getAttribute("src") || "");
+        const local = parseLocalImageUrl(cleanSrc);
+        const ext = local ? local.ext : ".png";
+        let dataUrl;
+        try {
+          dataUrl = canvasToDataUrl(canvas, ext);
+        } catch {
+          setStatus("Cannot edit cross-origin image directly", true);
+          return false;
+        }
+
+        setStatus("Saving image...");
+        try {
+          const payload = local
+            ? { data: dataUrl, username: local.username, replace: local.filename }
+            : { data: dataUrl, username: DEFAULT_USER };
+          const res = await wsRequest("upload_image", payload);
+          const image = res.image;
+          if (image.v) {
+            imageVersions.set(image.url, String(image.v));
+          }
+          if (local) {
+            refreshImagesForUrl(image.url);
+          } else {
+            imgEl.dataset.cleanSrc = image.url;
+            imgEl.src = getVersionedSrc(image.url);
+            syncPreviewToEditor();
+          }
+          setStatus("Image saved");
+          return true;
+        } catch (err) {
+          setStatus(err.message || "Failed to save image", true);
+          return false;
+        }
+      }
+
+      function transformCanvas(srcCanvasOrImg, action) {
+        const sw = srcCanvasOrImg.naturalWidth || srcCanvasOrImg.width;
+        const sh = srcCanvasOrImg.naturalHeight || srcCanvasOrImg.height;
+        const out = document.createElement("canvas");
+        const ctx = out.getContext("2d");
+
+        if (action === "rot-right" || action === "rot-left") {
+          out.width = sh;
+          out.height = sw;
+          ctx.translate(out.width / 2, out.height / 2);
+          ctx.rotate(action === "rot-right" ? Math.PI / 2 : -Math.PI / 2);
+          ctx.drawImage(srcCanvasOrImg, -sw / 2, -sh / 2);
+        } else if (action === "flip-h") {
+          out.width = sw;
+          out.height = sh;
+          ctx.translate(sw, 0);
+          ctx.scale(-1, 1);
+          ctx.drawImage(srcCanvasOrImg, 0, 0);
+        } else if (action === "flip-v") {
+          out.width = sw;
+          out.height = sh;
+          ctx.translate(0, sh);
+          ctx.scale(1, -1);
+          ctx.drawImage(srcCanvasOrImg, 0, 0);
+        } else {
+          out.width = sw;
+          out.height = sh;
+          ctx.drawImage(srcCanvasOrImg, 0, 0);
+        }
+        return out;
+      }
+
+      async function handleInlineImageAction(imgEl, action) {
+        if (action === "edit") {
+          openImageEditorModal(imgEl);
+          return;
+        }
+        try {
+          const loaded = await loadImageElement(imgEl.src);
+          const out = transformCanvas(loaded, action);
+          await saveTransformedCanvas(imgEl, out);
+        } catch (err) {
+          setStatus(err.message || "Image edit failed", true);
+        }
+      }
+
+      function startInlineImageResize(e, wrap, imgEl) {
+        const rect = imgEl.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        const naturalW = imgEl.naturalWidth || rect.width;
+        const naturalH = imgEl.naturalHeight || rect.height;
+        const aspect = naturalW / naturalH;
+        const badge = wrap.querySelector(".img-size-badge");
+
+        activeImgResize = {
+          wrap,
+          imgEl,
+          badge,
+          startX: e.clientX,
+          startW: rect.width,
+          aspect,
+          curW: Math.round(rect.width),
+          curH: Math.round(rect.height),
+        };
+        wrap.classList.add("resizing");
+        if (badge) {
+          badge.textContent = `${activeImgResize.curW} × ${activeImgResize.curH}`;
+          badge.hidden = false;
+        }
+      }
+
+      document.addEventListener("mousemove", (e) => {
+        if (!activeImgResize) return;
+        const dx = e.clientX - activeImgResize.startX;
+        const maxW = Math.max(200, previewEl.clientWidth - 48);
+        const nextW = Math.max(32, Math.min(maxW, Math.round(activeImgResize.startW + dx)));
+        const nextH = Math.max(32, Math.round(nextW / activeImgResize.aspect));
+        activeImgResize.curW = nextW;
+        activeImgResize.curH = nextH;
+        activeImgResize.imgEl.style.width = `${nextW}px`;
+        if (activeImgResize.badge) {
+          activeImgResize.badge.textContent = `${nextW} × ${nextH}`;
+        }
+      });
+
+      document.addEventListener("mouseup", async () => {
+        if (!activeImgResize) return;
+        const state = activeImgResize;
+        activeImgResize = null;
+        state.wrap.classList.remove("resizing");
+        if (state.badge) state.badge.hidden = true;
+        state.imgEl.style.width = "";
+
+        if (Math.abs(state.curW - Math.round(state.startW)) < 2) return;
+        try {
+          const loaded = await loadImageElement(state.imgEl.src);
+          const out = document.createElement("canvas");
+          out.width = state.curW;
+          out.height = state.curH;
+          const ctx = out.getContext("2d");
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+          ctx.drawImage(loaded, 0, 0, out.width, out.height);
+          await saveTransformedCanvas(state.imgEl, out);
+        } catch (err) {
+          setStatus(err.message || "Resize failed", true);
+        }
+      });
+
+      // Full Image Editor Modal (Resize, Flip, Rotate, Scribble)
+      function renderImageEditorCanvas() {
+        if (!imageEditorState) return;
+        const { workCanvas, strokes } = imageEditorState;
+        ieCanvasEl.width = workCanvas.width;
+        ieCanvasEl.height = workCanvas.height;
+        const ctx = ieCanvasEl.getContext("2d");
+        ctx.clearRect(0, 0, ieCanvasEl.width, ieCanvasEl.height);
+        ctx.drawImage(workCanvas, 0, 0);
+
+        for (const stroke of strokes) {
+          if (!stroke.points.length) continue;
+          ctx.save();
+          ctx.strokeStyle = stroke.color;
+          ctx.fillStyle = stroke.color;
+          ctx.lineWidth = stroke.size;
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          if (stroke.points.length === 1) {
+            const p = stroke.points[0];
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, stroke.size / 2, 0, Math.PI * 2);
+            ctx.fill();
+          } else {
+            ctx.beginPath();
+            ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+            for (let i = 1; i < stroke.points.length; i++) {
+              ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+            }
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+
+        ieInfoEl.textContent = `Canvas: ${workCanvas.width} × ${workCanvas.height} px | Output: ${imageEditorState.targetW} × ${imageEditorState.targetH} px`;
+      }
+
+      function bakeStrokesIntoWorkCanvas() {
+        if (!imageEditorState || imageEditorState.strokes.length === 0) return;
+        renderImageEditorCanvas();
+        const baked = document.createElement("canvas");
+        baked.width = ieCanvasEl.width;
+        baked.height = ieCanvasEl.height;
+        baked.getContext("2d").drawImage(ieCanvasEl, 0, 0);
+        imageEditorState.workCanvas = baked;
+        imageEditorState.strokes = [];
+      }
+
+      function applyEditorTransform(action) {
+        if (!imageEditorState) return;
+        bakeStrokesIntoWorkCanvas();
+        const prevW = imageEditorState.workCanvas.width;
+        const prevH = imageEditorState.workCanvas.height;
+        const nextCanvas = transformCanvas(imageEditorState.workCanvas, action);
+        imageEditorState.workCanvas = nextCanvas;
+        if (action === "rot-left" || action === "rot-right") {
+          const oldTargetW = imageEditorState.targetW;
+          imageEditorState.targetW = imageEditorState.targetH;
+          imageEditorState.targetH = oldTargetW;
+          ieWidthInputEl.value = String(imageEditorState.targetW);
+          ieHeightInputEl.value = String(imageEditorState.targetH);
+        } else if (prevW !== nextCanvas.width || prevH !== nextCanvas.height) {
+          imageEditorState.targetW = nextCanvas.width;
+          imageEditorState.targetH = nextCanvas.height;
+          ieWidthInputEl.value = String(imageEditorState.targetW);
+          ieHeightInputEl.value = String(imageEditorState.targetH);
+        }
+        renderImageEditorCanvas();
+      }
+
+      function closeImageEditorModal() {
+        imageEditorState = null;
+        imageEditorModalEl.hidden = true;
+      }
+
+      async function openImageEditorModal(imgEl) {
+        try {
+          const loaded = await loadImageElement(imgEl.src);
+          const workCanvas = document.createElement("canvas");
+          workCanvas.width = loaded.naturalWidth || loaded.width || 400;
+          workCanvas.height = loaded.naturalHeight || loaded.height || 300;
+          workCanvas.getContext("2d").drawImage(loaded, 0, 0);
+
+          const activeSwatch = imageEditorModalEl.querySelector(".swatch-btn.active");
+          imageEditorState = {
+            imgEl,
+            workCanvas,
+            origW: workCanvas.width,
+            origH: workCanvas.height,
+            targetW: workCanvas.width,
+            targetH: workCanvas.height,
+            color: activeSwatch ? activeSwatch.dataset.color : "#ef4444",
+            brushSize: Number(ieBrushSizeEl.value) || 6,
+            strokes: [],
+            drawingStroke: null,
+          };
+          ieWidthInputEl.value = String(workCanvas.width);
+          ieHeightInputEl.value = String(workCanvas.height);
+          imageEditorModalEl.hidden = false;
+          renderImageEditorCanvas();
+        } catch (err) {
+          setStatus(err.message || "Could not open image editor", true);
+        }
+      }
+
+      function canvasPointFromEvent(e) {
+        const rect = ieCanvasEl.getBoundingClientRect();
+        const scaleX = ieCanvasEl.width / (rect.width || 1);
+        const scaleY = ieCanvasEl.height / (rect.height || 1);
+        return {
+          x: (e.clientX - rect.left) * scaleX,
+          y: (e.clientY - rect.top) * scaleY,
+        };
+      }
+
+      ieCanvasEl.addEventListener("pointerdown", (e) => {
+        if (!imageEditorState || e.button !== 0) return;
+        e.preventDefault();
+        ieCanvasEl.setPointerCapture(e.pointerId);
+        const pt = canvasPointFromEvent(e);
+        const scaleFactor = Math.max(1, ieCanvasEl.width / (ieCanvasEl.getBoundingClientRect().width || 1));
+        const stroke = {
+          color: imageEditorState.color,
+          size: Math.max(1, imageEditorState.brushSize * scaleFactor),
+          points: [pt],
+        };
+        imageEditorState.strokes.push(stroke);
+        imageEditorState.drawingStroke = stroke;
+        renderImageEditorCanvas();
+      });
+
+      ieCanvasEl.addEventListener("pointermove", (e) => {
+        if (!imageEditorState || !imageEditorState.drawingStroke) return;
+        e.preventDefault();
+        imageEditorState.drawingStroke.points.push(canvasPointFromEvent(e));
+        renderImageEditorCanvas();
+      });
+
+      function endEditorStroke() {
+        if (imageEditorState) {
+          imageEditorState.drawingStroke = null;
+        }
+      }
+
+      ieCanvasEl.addEventListener("pointerup", endEditorStroke);
+      ieCanvasEl.addEventListener("pointercancel", endEditorStroke);
+
+      // Upload modal bindings
+      imageDropzoneEl.addEventListener("click", () => imageFileInputEl.click());
+      imageDropzoneEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          imageFileInputEl.click();
+        }
+      });
+      imageDropzoneEl.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        imageDropzoneEl.classList.add("dragover");
+      });
+      imageDropzoneEl.addEventListener("dragleave", () => {
+        imageDropzoneEl.classList.remove("dragover");
+      });
+      imageDropzoneEl.addEventListener("drop", (e) => {
+        e.preventDefault();
+        imageDropzoneEl.classList.remove("dragover");
+        const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (file && file.type.startsWith("image/")) {
+          const target = pendingImageInsert;
+          const alt = imageAltInputEl.value.trim();
+          closeImageUploadModal();
+          uploadAndInsertImageFile(file, alt, target);
+        }
+      });
+
+      imageFileInputEl.addEventListener("change", () => {
+        const file = imageFileInputEl.files && imageFileInputEl.files[0];
+        if (!file) return;
+        const target = pendingImageInsert;
+        const alt = imageAltInputEl.value.trim();
+        closeImageUploadModal();
+        uploadAndInsertImageFile(file, alt, target);
+      });
+
+      imageUrlInsertBtn.addEventListener("click", () => {
+        const url = normalizeLinkUrl(imageUrlInputEl.value);
+        if (!url) {
+          imageUrlInputEl.focus();
+          return;
+        }
+        const target = pendingImageInsert;
+        const alt = imageAltInputEl.value.trim() || "image";
+        closeImageUploadModal();
+        insertImageIntoNote(url, alt, target);
+      });
+
+      imageUrlInputEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          imageUrlInsertBtn.click();
+        }
+      });
+
+      imageUploadCloseBtn.addEventListener("click", closeImageUploadModal);
+      imageUploadCancelBtn.addEventListener("click", closeImageUploadModal);
+      imageUploadModalEl.addEventListener("click", (e) => {
+        if (e.target === imageUploadModalEl) closeImageUploadModal();
+      });
+
+      // Image editor modal bindings
+      document.getElementById("ie-rot-left").addEventListener("click", () => applyEditorTransform("rot-left"));
+      document.getElementById("ie-rot-right").addEventListener("click", () => applyEditorTransform("rot-right"));
+      document.getElementById("ie-flip-h").addEventListener("click", () => applyEditorTransform("flip-h"));
+      document.getElementById("ie-flip-v").addEventListener("click", () => applyEditorTransform("flip-v"));
+
+      ieWidthInputEl.addEventListener("input", () => {
+        if (!imageEditorState) return;
+        const w = Math.max(32, Math.min(4096, Math.round(Number(ieWidthInputEl.value) || 0)));
+        if (!w) return;
+        const ratio = imageEditorState.workCanvas.height / (imageEditorState.workCanvas.width || 1);
+        imageEditorState.targetW = w;
+        imageEditorState.targetH = Math.max(32, Math.min(4096, Math.round(w * ratio)));
+        ieHeightInputEl.value = String(imageEditorState.targetH);
+        renderImageEditorCanvas();
+      });
+
+      ieHeightInputEl.addEventListener("input", () => {
+        if (!imageEditorState) return;
+        const h = Math.max(32, Math.min(4096, Math.round(Number(ieHeightInputEl.value) || 0)));
+        if (!h) return;
+        const ratio = imageEditorState.workCanvas.width / (imageEditorState.workCanvas.height || 1);
+        imageEditorState.targetH = h;
+        imageEditorState.targetW = Math.max(32, Math.min(4096, Math.round(h * ratio)));
+        ieWidthInputEl.value = String(imageEditorState.targetW);
+        renderImageEditorCanvas();
+      });
+
+      function setEditorScale(factor) {
+        if (!imageEditorState) return;
+        const cw = imageEditorState.workCanvas.width;
+        const ch = imageEditorState.workCanvas.height;
+        imageEditorState.targetW = Math.max(32, Math.min(4096, Math.round(cw * factor)));
+        imageEditorState.targetH = Math.max(32, Math.min(4096, Math.round(ch * factor)));
+        ieWidthInputEl.value = String(imageEditorState.targetW);
+        ieHeightInputEl.value = String(imageEditorState.targetH);
+        renderImageEditorCanvas();
+      }
+
+      document.getElementById("ie-scale-50").addEventListener("click", () => setEditorScale(0.5));
+      document.getElementById("ie-scale-75").addEventListener("click", () => setEditorScale(0.75));
+      document.getElementById("ie-scale-100").addEventListener("click", () => setEditorScale(1));
+
+      imageEditorModalEl.querySelectorAll(".swatch-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          imageEditorModalEl.querySelectorAll(".swatch-btn").forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          if (imageEditorState) {
+            imageEditorState.color = btn.dataset.color || "#ef4444";
+          }
+        });
+      });
+
+      ieBrushSizeEl.addEventListener("change", () => {
+        if (imageEditorState) {
+          imageEditorState.brushSize = Number(ieBrushSizeEl.value) || 6;
+        }
+      });
+
+      document.getElementById("ie-undo-stroke").addEventListener("click", () => {
+        if (!imageEditorState || !imageEditorState.strokes.length) return;
+        imageEditorState.strokes.pop();
+        renderImageEditorCanvas();
+      });
+
+      document.getElementById("ie-clear-strokes").addEventListener("click", () => {
+        if (!imageEditorState) return;
+        imageEditorState.strokes = [];
+        renderImageEditorCanvas();
+      });
+
+      imageEditorSaveBtn.addEventListener("click", async () => {
+        if (!imageEditorState) return;
+        renderImageEditorCanvas();
+        const out = document.createElement("canvas");
+        out.width = Math.max(32, Math.min(4096, imageEditorState.targetW));
+        out.height = Math.max(32, Math.min(4096, imageEditorState.targetH));
+        const ctx = out.getContext("2d");
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(ieCanvasEl, 0, 0, out.width, out.height);
+
+        const targetImg = imageEditorState.imgEl;
+        imageEditorSaveBtn.disabled = true;
+        const ok = await saveTransformedCanvas(targetImg, out);
+        imageEditorSaveBtn.disabled = false;
+        if (ok) closeImageEditorModal();
+      });
+
+      imageEditorCloseBtn.addEventListener("click", closeImageEditorModal);
+      imageEditorCancelBtn.addEventListener("click", closeImageEditorModal);
+      imageEditorModalEl.addEventListener("click", (e) => {
+        if (e.target === imageEditorModalEl) closeImageEditorModal();
+      });
+
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          if (!imageUploadModalEl.hidden) {
+            closeImageUploadModal();
+          } else if (!imageEditorModalEl.hidden) {
+            closeImageEditorModal();
+          }
+        }
+      });
+
+      // Drag-and-drop image files directly onto editor or preview
+      workspaceEl.addEventListener("dragover", (e) => {
+        if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files")) {
+          e.preventDefault();
+        }
+      });
+      workspaceEl.addEventListener("drop", (e) => {
+        const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (!file || !file.type.startsWith("image/") || activeId === null) return;
+        e.preventDefault();
+        const inPreview = previewEl.contains(e.target);
+        uploadAndInsertImageFile(
+          file,
+          "",
+          inPreview ? { mode: "preview", node: previewEl.lastChild } : { mode: "cm", pos: cm.getCursor() }
+        );
       });
 
       // Event bindings
