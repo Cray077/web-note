@@ -91,7 +91,16 @@
       border-color: #bfdbfe;
     }
 
+    .note-name-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+    }
+
     .note-name {
+      flex: 1 1 auto;
+      min-width: 0;
       font-weight: 600;
       font-size: 13.5px;
       color: #111827;
@@ -99,6 +108,50 @@
       overflow: hidden;
       text-overflow: ellipsis;
       line-height: 1.35;
+    }
+
+    .note-rename-btn {
+      flex: 0 0 auto;
+      width: 20px;
+      height: 20px;
+      padding: 0;
+      border: none;
+      border-radius: 4px;
+      background: transparent;
+      color: #6b7280;
+      font-size: 12px;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      opacity: 0;
+    }
+
+    .note-item:hover .note-rename-btn,
+    .note-item:focus-within .note-rename-btn,
+    .note-item.active .note-rename-btn {
+      opacity: 1;
+    }
+
+    .note-rename-btn:hover {
+      background: rgba(15, 23, 42, 0.08);
+      color: #111827;
+    }
+
+    .note-rename-input {
+      width: 100%;
+      padding: 1px 5px;
+      border: 1px solid #3b82f6;
+      border-radius: 4px;
+      background: #ffffff;
+      font: inherit;
+      font-weight: 600;
+      font-size: 13.5px;
+      line-height: 1.35;
+      color: #111827;
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
     }
 
     .note-date {
@@ -792,6 +845,7 @@
       let previewSlash = null;
       let colTypeTarget = null;
       let activeTypedCell = null;
+      let renamingNoteId = null;
 
       let ws = null;
       let wsInitialized = false;
@@ -1262,6 +1316,9 @@
       }
 
       function renderSidebar() {
+        if (renamingNoteId !== null && noteListEl.querySelector(".note-rename-input")) {
+          return;
+        }
         const query = searchEl.value.trim().toLowerCase();
         const filtered = query
           ? notes.filter((n) => n.filename.toLowerCase().includes(query))
@@ -1285,19 +1342,130 @@
           li.setAttribute("role", "option");
           li.setAttribute("aria-selected", note.id === activeId ? "true" : "false");
 
+          const nameRow = document.createElement("div");
+          nameRow.className = "note-name-row";
+
           const nameEl = document.createElement("div");
           nameEl.className = "note-name";
           nameEl.textContent = note.filename;
+          nameEl.title = note.filename;
+
+          const renameBtn = document.createElement("button");
+          renameBtn.className = "note-rename-btn";
+          renameBtn.type = "button";
+          renameBtn.title = "Rename note";
+          renameBtn.setAttribute("aria-label", `Rename ${note.filename}`);
+          renameBtn.textContent = "\u270E";
+
+          nameRow.appendChild(nameEl);
+          nameRow.appendChild(renameBtn);
 
           const dateEl = document.createElement("div");
           dateEl.className = "note-date";
           dateEl.textContent = formatDate(note.updated_at);
 
-          li.appendChild(nameEl);
+          li.appendChild(nameRow);
           li.appendChild(dateEl);
           fragment.appendChild(li);
         }
         noteListEl.appendChild(fragment);
+      }
+
+      function applyNoteRename(note) {
+        if (!note || !Number.isInteger(note.id)) return;
+        const existing = notes.find((n) => n.id === note.id);
+        if (existing) {
+          existing.filename = note.filename;
+          if (note.updated_at) existing.updated_at = note.updated_at;
+        } else {
+          notes.push({
+            id: note.id,
+            filename: note.filename,
+            updated_at: note.updated_at,
+          });
+          sortNotesNewestFirst();
+        }
+        renderSidebar();
+        if (openTabIds.includes(note.id)) {
+          renderTabs();
+        }
+        if (note.id === activeId) {
+          document.title = `${note.filename} — Notes`;
+        }
+      }
+
+      function startInlineRename(noteId) {
+        const note = notes.find((n) => n.id === noteId);
+        if (!note) return;
+        if (renamingNoteId === noteId) return;
+        if (renamingNoteId !== null) {
+          renamingNoteId = null;
+          renderSidebar();
+        }
+
+        const item = noteListEl.querySelector(`.note-item[data-id="${noteId}"]`);
+        if (!item) return;
+        const nameRow = item.querySelector(".note-name-row");
+        if (!nameRow) return;
+
+        renamingNoteId = noteId;
+        const originalName = note.filename;
+
+        const input = document.createElement("input");
+        input.type = "text";
+        input.className = "note-rename-input";
+        input.value = originalName;
+        input.maxLength = 255;
+        input.setAttribute("aria-label", "Note name");
+
+        nameRow.innerHTML = "";
+        nameRow.appendChild(input);
+
+        let settled = false;
+
+        async function finish(commit) {
+          if (settled) return;
+          settled = true;
+          const nextName = input.value.trim();
+          renamingNoteId = null;
+
+          if (!commit || !nextName || nextName === originalName) {
+            renderSidebar();
+            return;
+          }
+
+          try {
+            const res = await wsRequest("rename_note", { id: noteId, filename: nextName });
+            applyNoteRename(res.note);
+            if (!dirty) setStatus("Renamed");
+          } catch (err) {
+            renderSidebar();
+            setStatus(err.message || "Rename failed", true);
+          }
+        }
+
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.stopPropagation();
+            finish(true);
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            finish(false);
+          }
+        });
+
+        input.addEventListener("blur", () => {
+          finish(true);
+        });
+
+        input.addEventListener("click", (e) => {
+          e.stopPropagation();
+        });
+
+        input.focus();
+        input.select();
       }
 
       function applyRemoteContentToDoc(doc, newContent, isActive) {
@@ -1445,6 +1613,12 @@
 
           renderSidebar();
           renderTabs();
+          if (activeId !== null) {
+            const activeMeta = byId.get(activeId);
+            if (activeMeta) {
+              document.title = `${activeMeta.filename} — Notes`;
+            }
+          }
 
           if (activeId !== null) {
             if (dirty) {
@@ -1528,6 +1702,8 @@
             handleRemoteNoteCreated(msg.note);
           } else if (msg.type === "note_updated" && msg.note) {
             handleRemoteNoteUpdated(msg.note);
+          } else if (msg.type === "note_renamed" && msg.note) {
+            applyNoteRename(msg.note);
           }
         });
 
@@ -2752,12 +2928,30 @@
       searchEl.addEventListener("input", renderSidebar);
 
       noteListEl.addEventListener("click", (e) => {
+        if (e.target.closest(".note-rename-input")) return;
+        const renameBtn = e.target.closest(".note-rename-btn");
+        if (renameBtn) {
+          e.stopPropagation();
+          const item = renameBtn.closest(".note-item");
+          const id = item ? Number(item.dataset.id) : NaN;
+          if (Number.isInteger(id)) startInlineRename(id);
+          return;
+        }
         const item = e.target.closest(".note-item");
         if (!item) return;
         const id = Number(item.dataset.id);
         if (Number.isInteger(id)) {
           selectNote(id);
         }
+      });
+
+      noteListEl.addEventListener("dblclick", (e) => {
+        const nameEl = e.target.closest(".note-name");
+        if (!nameEl) return;
+        e.stopPropagation();
+        const item = nameEl.closest(".note-item");
+        const id = item ? Number(item.dataset.id) : NaN;
+        if (Number.isInteger(id)) startInlineRename(id);
       });
 
       tabStripEl.addEventListener("click", (e) => {

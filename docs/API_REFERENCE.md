@@ -11,7 +11,7 @@ All endpoints are defined in `app.py`. Note listing, loading, creation, saving, 
 | `WS` | `/ws` | `ws_endpoint` | Bidirectional JSON WebSocket for note CRUD & live updates |
 | `GET` | `/api/export` | `export_notes` | Download all notes as a single `.zip` archive |
 
-Note: There are currently **no** rename or delete operations.
+Note: There is currently **no** delete operation.
 
 ---
 
@@ -123,6 +123,31 @@ Atomically replaces `<NOTES_DIR>/<id>.md` (temp file + `fsync` + `os.replace`, s
   }
   ```
 - **Errors:** `code: 400` (`Invalid note id` / `content must be a string`), `code: 404` (`Note not found`), `code: 413` (`Note exceeds maximum size limit`).
+
+### `rename_note`
+
+Updates `notes.filename` in SQLite without touching `<NOTES_DIR>/<id>.md` on disk, replies to the sender, and broadcasts `note_renamed` to all other connected clients.
+
+- **Client → Server:**
+  ```json
+  {"type": "rename_note", "req_id": "5", "id": 5, "filename": "Sprint Planning"}
+  ```
+- **Validation:** `id` must be a positive integer (`code: 400`), `filename` must be a `str` whose trimmed length is `1..255` characters (`code: 400`), and the note must exist (`code: 404`).
+- **Server → Sender (`note_renamed`):**
+  ```json
+  {
+    "type": "note_renamed",
+    "req_id": "5",
+    "note": {"id": 5, "filename": "Sprint Planning", "updated_at": "2026-11-25T14:32:12.000123Z"}
+  }
+  ```
+- **Server → Other Clients (live broadcast):**
+  ```json
+  {
+    "type": "note_renamed",
+    "note": {"id": 5, "filename": "Sprint Planning", "updated_at": "2026-11-25T14:32:12.000123Z"}
+  }
+  ```
 
 ### `ping`
 

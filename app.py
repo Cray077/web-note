@@ -290,6 +290,36 @@ def op_update_note(raw_id: object, content: object) -> tuple[dict, str]:
         return meta, content
 
 
+def op_rename_note(raw_id: object, filename: object) -> dict:
+    note_id = parse_note_id(raw_id)
+    if not isinstance(filename, str):
+        raise AppError("filename must be a string", 400)
+    filename = filename.strip()
+    if not filename or len(filename) > MAX_FILENAME_LEN:
+        raise AppError("filename must be between 1 and 255 characters", 400)
+
+    with _get_note_lock(note_id):
+        with closing(open_db()) as db:
+            row = db.execute(
+                "SELECT id, updated_at FROM notes WHERE id = ?",
+                (note_id,),
+            ).fetchone()
+            if row is None:
+                raise AppError("Note not found", 404)
+
+            db.execute(
+                "UPDATE notes SET filename = ? WHERE id = ?",
+                (filename, note_id),
+            )
+            db.commit()
+
+        return {
+            "id": row["id"],
+            "filename": filename,
+            "updated_at": row["updated_at"],
+        }
+
+
 def handle_ws_message(client: WSClient, msg: dict) -> None:
     msg_type = msg.get("type")
     req_id = msg.get("req_id")
@@ -318,6 +348,10 @@ def handle_ws_message(client: WSClient, msg: dict) -> None:
                 {"type": "note_updated", "note": {**note, "content": content}},
                 exclude=client,
             )
+        elif msg_type == "rename_note":
+            note = op_rename_note(msg.get("id"), msg.get("filename"))
+            reply({"type": "note_renamed", "note": note})
+            broadcast({"type": "note_renamed", "note": note}, exclude=client)
         else:
             reply({"type": "error", "error": f"Unknown message type: {msg_type}", "code": 400})
     except AppError as exc:

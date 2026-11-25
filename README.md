@@ -13,7 +13,7 @@ A minimal, self-hosted Markdown notes web application inspired by lightweight de
 - **`/` slash command menu:** Available in both the source editor and the live preview for inserting headings (`H1`–`H3`), bullet/numbered/task lists, quotes, code blocks, tables, dividers, links, and images.
 - **Interactive typed tables:** Add rows and columns directly in the live preview with `+` buttons, navigate cells with `Tab` / `Enter`, and assign per-column types (**Text**, **Number**, **Currency**, **Checkbox**, **Date**).
 - **Responsive collapsible layout:** Independent **Hide/Show sidebar**, **Hide/Show editor**, and **Hide/Show preview** controls on desktop (`>= 900px`), and single-pane **Edit / Preview** switching on smaller screens.
-- **Sidebar search, autosave & export:** Instant client-side note filtering, fast debounced autosave (`350ms` debounce / `1000ms` max-wait during continuous typing) with `pagehide` unload flush, and one-click `.zip` export of all notes.
+- **Sidebar search, inline rename, autosave & export:** Instant client-side note filtering, inline note renaming directly in the sidebar (via the `✎` button or double-clicking a note name, synced live across open tabs and connected clients), fast debounced autosave (`350ms` debounce / `1000ms` max-wait during continuous typing) with `pagehide` unload flush, and one-click `.zip` export of all notes.
 - **Zero-build & self-contained:** No Node.js, npm, bundler, or external CDN requests. All frontend dependencies are pinned and vendored locally under `static/vendor/`.
 
 ## Tech Stack
@@ -120,8 +120,9 @@ All note CRUD and live broadcasts happen as JSON messages over `/ws`:
 | Client → Server | `create_note` | Create a note (`{"filename": "..."}`); replies and broadcasts `note_created` |
 | Client → Server | `get_note` | Fetch note metadata and Markdown content (`note_content` reply) |
 | Client → Server | `update_note` | Atomically save Markdown content (max 5 MB); replies `note_saved` and broadcasts `note_updated` |
+| Client → Server | `rename_note` | Rename a note (`{"id": 5, "filename": "..."}`); replies and broadcasts `note_renamed` |
 | Client → Server | `ping` | Keepalive check (`pong` reply) |
-| Server → Clients | `note_created` / `note_updated` | Live broadcast pushed to all other connected clients |
+| Server → Clients | `note_created` / `note_updated` / `note_renamed` | Live broadcast pushed to all other connected clients |
 
 See [`docs/API_REFERENCE.md`](docs/API_REFERENCE.md) for full message schemas, limits, and error formats.
 
