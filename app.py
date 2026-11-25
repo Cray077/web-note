@@ -1,23 +1,83 @@
+import json
 import os
 import re
 import sqlite3
 import tempfile
 import threading
 import zipfile
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Flask, g, jsonify, request, send_file, send_from_directory
+from flask import Flask, g, jsonify, send_file, send_from_directory
+from flask_sock import Sock
+from simple_websocket import ConnectionClosed
 
 MAX_NOTE_BYTES = 5 * 1024 * 1024  # 5 MB per note
+MAX_WS_MESSAGE_BYTES = MAX_NOTE_BYTES + 1024 * 1024
 MAX_FILENAME_LEN = 255
 
 app = Flask(__name__, static_folder="static")
 app.config["NOTES_DIR"] = os.environ.get("NOTES_DIR", "/var/notes")
-app.config["MAX_CONTENT_LENGTH"] = MAX_NOTE_BYTES + 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = MAX_WS_MESSAGE_BYTES
+app.config["SOCK_SERVER_OPTIONS"] = {"ping_interval": 25}
+
+sock = Sock(app)
 
 _init_lock = threading.Lock()
 _initialized_dirs: set[str] = set()
+
+_clients_lock = threading.Lock()
+_clients: set["WSClient"] = set()
+
+_note_locks_guard = threading.Lock()
+_note_locks: dict[int, threading.Lock] = {}
+
+
+class AppError(Exception):
+    def __init__(self, message: str, code: int = 400) -> None:
+        super().__init__(message)
+        self.message = message
+        self.code = code
+
+
+class WSClient:
+    def __init__(self, ws) -> None:
+        self.ws = ws
+        self._send_lock = threading.Lock()
+
+    def send_json(self, payload: dict) -> bool:
+        encoded = json.dumps(payload, separators=(",", ":"))
+        with self._send_lock:
+            try:
+                self.ws.send(encoded)
+                return True
+            except Exception:
+                return False
+
+
+def _get_note_lock(note_id: int) -> threading.Lock:
+    with _note_locks_guard:
+        lock = _note_locks.get(note_id)
+        if lock is None:
+            lock = threading.Lock()
+            _note_locks[note_id] = lock
+        return lock
+
+
+def broadcast(payload: dict, exclude: WSClient | None = None) -> None:
+    with _clients_lock:
+        targets = list(_clients)
+    dead: list[WSClient] = []
+    for client in targets:
+        if client is exclude:
+            continue
+        if not client.send_json(payload):
+            dead.append(client)
+    if dead:
+        with _clients_lock:
+            for client in dead:
+                _clients.discard(client)
 
 
 def get_notes_dir() -> Path:
@@ -56,12 +116,16 @@ def init_db() -> None:
         _initialized_dirs.add(key)
 
 
-def get_db() -> sqlite3.Connection:
+def open_db() -> sqlite3.Connection:
     init_db()
+    conn = sqlite3.connect(get_db_path(), timeout=30.0)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def get_db() -> sqlite3.Connection:
     if "db" not in g:
-        conn = sqlite3.connect(get_db_path(), timeout=30.0)
-        conn.row_factory = sqlite3.Row
-        g.db = conn
+        g.db = open_db()
     return g.db
 
 
@@ -76,8 +140,14 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def parse_note_id(raw_id: object) -> int:
+    if isinstance(raw_id, bool) or not isinstance(raw_id, int) or raw_id <= 0:
+        raise AppError("Invalid note id", 400)
+    return raw_id
+
+
 def note_file_path(note_id: int) -> Path:
-    if not isinstance(note_id, int) or note_id <= 0:
+    if isinstance(note_id, bool) or not isinstance(note_id, int) or note_id <= 0:
         raise ValueError("Invalid note id")
     notes_dir = get_notes_dir()
     path = (notes_dir / f"{note_id}.md").resolve()
@@ -128,6 +198,188 @@ def safe_zip_name(filename: str, note_id: int, used_lower: set[str]) -> str:
     return candidate
 
 
+def op_list_notes() -> list[dict]:
+    with closing(open_db()) as db:
+        rows = db.execute(
+            "SELECT id, filename, updated_at FROM notes ORDER BY updated_at DESC, id DESC"
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def op_create_note(filename: object) -> dict:
+    if not isinstance(filename, str):
+        raise AppError("filename must be a string", 400)
+    filename = filename.strip()
+    if not filename or len(filename) > MAX_FILENAME_LEN:
+        raise AppError("filename must be between 1 and 255 characters", 400)
+
+    updated_at = now_iso()
+    with closing(open_db()) as db:
+        try:
+            cursor = db.execute(
+                "INSERT INTO notes (filename, path, updated_at) VALUES (?, '', ?)",
+                (filename, updated_at),
+            )
+            note_id = cursor.lastrowid
+            file_path = note_file_path(note_id)
+            db.execute("UPDATE notes SET path = ? WHERE id = ?", (str(file_path), note_id))
+            atomic_write_text(file_path, "")
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+
+    return {"id": note_id, "filename": filename, "updated_at": updated_at}
+
+
+def op_get_note(raw_id: object) -> dict:
+    note_id = parse_note_id(raw_id)
+    with closing(open_db()) as db:
+        row = db.execute(
+            "SELECT id, filename, updated_at FROM notes WHERE id = ?",
+            (note_id,),
+        ).fetchone()
+    if row is None:
+        raise AppError("Note not found", 404)
+
+    file_path = note_file_path(note_id)
+    try:
+        content = file_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        content = ""
+
+    return {
+        "id": row["id"],
+        "filename": row["filename"],
+        "updated_at": row["updated_at"],
+        "content": content,
+    }
+
+
+def op_update_note(raw_id: object, content: object) -> tuple[dict, str]:
+    note_id = parse_note_id(raw_id)
+    if not isinstance(content, str):
+        raise AppError("content must be a string", 400)
+    if len(content.encode("utf-8")) > MAX_NOTE_BYTES:
+        raise AppError("Note exceeds maximum size limit", 413)
+
+    with _get_note_lock(note_id):
+        with closing(open_db()) as db:
+            row = db.execute(
+                "SELECT id, filename FROM notes WHERE id = ?",
+                (note_id,),
+            ).fetchone()
+            if row is None:
+                raise AppError("Note not found", 404)
+
+            file_path = note_file_path(note_id)
+            atomic_write_text(file_path, content)
+
+            updated_at = now_iso()
+            db.execute(
+                "UPDATE notes SET updated_at = ? WHERE id = ?",
+                (updated_at, note_id),
+            )
+            db.commit()
+
+        meta = {
+            "id": row["id"],
+            "filename": row["filename"],
+            "updated_at": updated_at,
+        }
+        return meta, content
+
+
+def handle_ws_message(client: WSClient, msg: dict) -> None:
+    msg_type = msg.get("type")
+    req_id = msg.get("req_id")
+
+    def reply(payload: dict) -> None:
+        if req_id is not None:
+            payload = {**payload, "req_id": req_id}
+        client.send_json(payload)
+
+    try:
+        if msg_type == "ping":
+            reply({"type": "pong"})
+        elif msg_type == "list_notes":
+            reply({"type": "notes_list", "notes": op_list_notes()})
+        elif msg_type == "create_note":
+            note = op_create_note(msg.get("filename"))
+            reply({"type": "note_created", "note": note})
+            broadcast({"type": "note_created", "note": note}, exclude=client)
+        elif msg_type == "get_note":
+            note = op_get_note(msg.get("id"))
+            reply({"type": "note_content", "note": note})
+        elif msg_type == "update_note":
+            note, content = op_update_note(msg.get("id"), msg.get("content"))
+            reply({"type": "note_saved", "note": note})
+            broadcast(
+                {"type": "note_updated", "note": {**note, "content": content}},
+                exclude=client,
+            )
+        else:
+            reply({"type": "error", "error": f"Unknown message type: {msg_type}", "code": 400})
+    except AppError as exc:
+        reply({"type": "error", "error": exc.message, "code": exc.code})
+    except Exception:
+        app.logger.exception("WebSocket message handling failed")
+        reply({"type": "error", "error": "Internal server error", "code": 500})
+
+
+@sock.route("/ws")
+def ws_endpoint(ws):
+    client = WSClient(ws)
+    with _clients_lock:
+        _clients.add(client)
+    try:
+        while True:
+            raw = ws.receive()
+            if raw is None:
+                break
+            if isinstance(raw, bytes):
+                if len(raw) > MAX_WS_MESSAGE_BYTES:
+                    client.send_json(
+                        {
+                            "type": "error",
+                            "error": "Note exceeds maximum size limit",
+                            "code": 413,
+                        }
+                    )
+                    continue
+                raw = raw.decode("utf-8", errors="replace")
+            elif len(raw.encode("utf-8")) > MAX_WS_MESSAGE_BYTES:
+                client.send_json(
+                    {
+                        "type": "error",
+                        "error": "Note exceeds maximum size limit",
+                        "code": 413,
+                    }
+                )
+                continue
+
+            try:
+                msg = json.loads(raw)
+            except json.JSONDecodeError:
+                client.send_json(
+                    {"type": "error", "error": "Invalid JSON message", "code": 400}
+                )
+                continue
+
+            if not isinstance(msg, dict):
+                client.send_json(
+                    {"type": "error", "error": "Message must be a JSON object", "code": 400}
+                )
+                continue
+
+            handle_ws_message(client, msg)
+    except ConnectionClosed:
+        pass
+    finally:
+        with _clients_lock:
+            _clients.discard(client)
+
+
 @app.errorhandler(413)
 def handle_too_large(_err):
     return jsonify({"error": "Note exceeds maximum size limit"}), 413
@@ -136,110 +388,6 @@ def handle_too_large(_err):
 @app.route("/", methods=["GET"])
 def index():
     return send_from_directory(app.static_folder, "index.html")
-
-
-@app.route("/api/notes", methods=["GET"])
-def list_notes():
-    db = get_db()
-    rows = db.execute(
-        "SELECT id, filename, updated_at FROM notes ORDER BY updated_at DESC, id DESC"
-    ).fetchall()
-    return jsonify([dict(row) for row in rows])
-
-
-@app.route("/api/notes", methods=["POST"])
-def create_note():
-    data = request.get_json(silent=True) or {}
-    filename = data.get("filename")
-    if not isinstance(filename, str):
-        return jsonify({"error": "filename must be a string"}), 400
-    filename = filename.strip()
-    if not filename or len(filename) > MAX_FILENAME_LEN:
-        return jsonify({"error": "filename must be between 1 and 255 characters"}), 400
-
-    db = get_db()
-    updated_at = now_iso()
-    try:
-        cursor = db.execute(
-            "INSERT INTO notes (filename, path, updated_at) VALUES (?, '', ?)",
-            (filename, updated_at),
-        )
-        note_id = cursor.lastrowid
-        file_path = note_file_path(note_id)
-        db.execute("UPDATE notes SET path = ? WHERE id = ?", (str(file_path), note_id))
-        atomic_write_text(file_path, "")
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
-
-    return (
-        jsonify({"id": note_id, "filename": filename, "updated_at": updated_at}),
-        201,
-    )
-
-
-@app.route("/api/notes/<int:note_id>", methods=["GET"])
-def get_note(note_id: int):
-    db = get_db()
-    row = db.execute(
-        "SELECT id, filename, updated_at FROM notes WHERE id = ?",
-        (note_id,),
-    ).fetchone()
-    if row is None:
-        return jsonify({"error": "Note not found"}), 404
-
-    file_path = note_file_path(note_id)
-    try:
-        content = file_path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        content = ""
-
-    return jsonify(
-        {
-            "id": row["id"],
-            "filename": row["filename"],
-            "updated_at": row["updated_at"],
-            "content": content,
-        }
-    )
-
-
-@app.route("/api/notes/<int:note_id>", methods=["PUT"])
-def update_note(note_id: int):
-    data = request.get_json(silent=True)
-    if not isinstance(data, dict) or not isinstance(data.get("content"), str):
-        return jsonify({"error": "content must be a string"}), 400
-
-    content = data["content"]
-    if len(content.encode("utf-8")) > MAX_NOTE_BYTES:
-        return jsonify({"error": "Note exceeds maximum size limit"}), 413
-
-    db = get_db()
-    row = db.execute(
-        "SELECT id, filename FROM notes WHERE id = ?",
-        (note_id,),
-    ).fetchone()
-    if row is None:
-        return jsonify({"error": "Note not found"}), 404
-
-    file_path = note_file_path(note_id)
-    atomic_write_text(file_path, content)
-
-    updated_at = now_iso()
-    db.execute(
-        "UPDATE notes SET updated_at = ? WHERE id = ?",
-        (updated_at, note_id),
-    )
-    db.commit()
-
-    return jsonify(
-        {
-            "id": row["id"],
-            "filename": row["filename"],
-            "updated_at": updated_at,
-        }
-    )
 
 
 @app.route("/api/export", methods=["GET"])
@@ -272,4 +420,8 @@ def export_notes():
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=int(os.environ.get("PORT", "8000")))
+    app.run(
+        host="127.0.0.1",
+        port=int(os.environ.get("PORT", "8000")),
+        threaded=True,
+    )

@@ -744,11 +744,15 @@
   <script src="/static/vendor/codemirror/addon/hint/show-hint.js"></script>
   <script>
     (() => {
-      const AUTOSAVE_DELAY_MS = 800;
+      const AUTOSAVE_DELAY_MS = 350;
+      const AUTOSAVE_MAX_WAIT_MS = 1000;
       const PREVIEW_DELAY_MS = 150;
       const LARGE_NOTE_BYTES = 200 * 1024;
       const LARGE_PREVIEW_DELAY_MS = 500;
       const TABS_STORAGE_KEY = "notes.openTabs";
+      const WS_RECONNECT_BASE_MS = 500;
+      const WS_RECONNECT_MAX_MS = 5000;
+      const WS_REQUEST_TIMEOUT_MS = 15000;
 
       const sidebarEl = document.getElementById("sidebar");
       const searchEl = document.getElementById("search");
@@ -780,6 +784,7 @@
       let widePreviewVisible = true;
       let narrowPreviewActive = false;
       let saveTimer = null;
+      let saveFirstDirtyAt = null;
       let previewTimer = null;
       let previewSyncTimer = null;
       let saveInFlight = null;
@@ -787,6 +792,14 @@
       let previewSlash = null;
       let colTypeTarget = null;
       let activeTypedCell = null;
+
+      let ws = null;
+      let wsInitialized = false;
+      let wsInitializing = false;
+      let wsReqSeq = 0;
+      const wsPending = new Map();
+      let wsReconnectTimer = null;
+      let wsReconnectDelay = WS_RECONNECT_BASE_MS;
 
       // Markdown + DOMPurify + Turndown setup
       marked.use({ gfm: true, breaks: true });
@@ -1195,10 +1208,14 @@
       }
 
       cm.on("change", (_editor, change) => {
-        if (change.origin === "setValue") {
+        if (change.origin === "setValue" || change.origin === "remote") {
           if (previewTimer !== null) {
             clearTimeout(previewTimer);
             previewTimer = null;
+          }
+          if (change.origin === "remote") {
+            closePreviewSlashMenu();
+            closeColTypeMenu();
           }
           if (!previewEl.hidden) {
             renderPreview(cm.getValue());
@@ -1283,12 +1300,257 @@
         noteListEl.appendChild(fragment);
       }
 
+      function applyRemoteContentToDoc(doc, newContent, isActive) {
+        const oldContent = doc.getValue();
+        if (oldContent === newContent) return false;
+        let start = 0;
+        const minLen = Math.min(oldContent.length, newContent.length);
+        while (start < minLen && oldContent.charCodeAt(start) === newContent.charCodeAt(start)) {
+          start++;
+        }
+        let oldEnd = oldContent.length;
+        let newEnd = newContent.length;
+        while (
+          oldEnd > start &&
+          newEnd > start &&
+          oldContent.charCodeAt(oldEnd - 1) === newContent.charCodeAt(newEnd - 1)
+        ) {
+          oldEnd--;
+          newEnd--;
+        }
+        const from = doc.posFromIndex(start);
+        const to = doc.posFromIndex(oldEnd);
+        const inserted = newContent.slice(start, newEnd);
+        const scrollInfo = isActive ? cm.getScrollInfo() : null;
+        doc.replaceRange(inserted, from, to, "remote");
+        if (isActive && scrollInfo) {
+          cm.scrollTo(scrollInfo.left, scrollInfo.top);
+        }
+        return true;
+      }
+
+      function rejectPendingRequests(reason) {
+        for (const [reqId, pending] of wsPending.entries()) {
+          clearTimeout(pending.timer);
+          pending.reject(new Error(reason));
+          wsPending.delete(reqId);
+        }
+      }
+
+      function wsRequest(type, payload = {}) {
+        return new Promise((resolve, reject) => {
+          if (!ws || ws.readyState !== WebSocket.OPEN) {
+            reject(new Error("Disconnected"));
+            return;
+          }
+          const reqId = String(++wsReqSeq);
+          const timer = setTimeout(() => {
+            if (wsPending.delete(reqId)) {
+              reject(new Error("Request timed out"));
+            }
+          }, WS_REQUEST_TIMEOUT_MS);
+
+          wsPending.set(reqId, { resolve, reject, timer });
+          try {
+            ws.send(JSON.stringify({ type, req_id: reqId, ...payload }));
+          } catch (err) {
+            clearTimeout(timer);
+            wsPending.delete(reqId);
+            reject(err);
+          }
+        });
+      }
+
+      function handleRemoteNoteCreated(note) {
+        if (!note || !Number.isInteger(note.id)) return;
+        if (notes.some((n) => n.id === note.id)) return;
+        notes.push({
+          id: note.id,
+          filename: note.filename,
+          updated_at: note.updated_at,
+        });
+        sortNotesNewestFirst();
+        renderSidebar();
+      }
+
+      function handleRemoteNoteUpdated(note) {
+        if (!note || !Number.isInteger(note.id)) return;
+        const existing = notes.find((n) => n.id === note.id);
+        let filenameChanged = false;
+        if (existing) {
+          if (note.updated_at && existing.updated_at && note.updated_at < existing.updated_at) {
+            return;
+          }
+          filenameChanged = existing.filename !== note.filename;
+          existing.filename = note.filename;
+          existing.updated_at = note.updated_at;
+        } else {
+          notes.push({
+            id: note.id,
+            filename: note.filename,
+            updated_at: note.updated_at,
+          });
+        }
+        sortNotesNewestFirst();
+        renderSidebar();
+        if (filenameChanged && openTabIds.includes(note.id)) {
+          renderTabs();
+          if (note.id === activeId) {
+            document.title = `${note.filename} — Notes`;
+          }
+        }
+
+        const cached = tabDocs.get(note.id);
+        const remoteContent = typeof note.content === "string" ? note.content : "";
+
+        if (note.id !== activeId) {
+          if (cached) {
+            if (!cached.updatedAt || !note.updated_at || note.updated_at >= cached.updatedAt) {
+              cached.updatedAt = note.updated_at;
+              applyRemoteContentToDoc(cached.doc, remoteContent, false);
+            }
+          }
+          return;
+        }
+
+        if (cached && cached.updatedAt && note.updated_at && note.updated_at < cached.updatedAt) {
+          return;
+        }
+
+        if (!dirty && previewSyncTimer === null && !saveInFlight) {
+          if (cached) {
+            cached.updatedAt = note.updated_at;
+          }
+          const changed = applyRemoteContentToDoc(cm.getDoc(), remoteContent, true);
+          if (changed) {
+            setStatus("Updated");
+          }
+        }
+      }
+
+      async function resyncAfterReconnect() {
+        try {
+          const listRes = await wsRequest("list_notes");
+          notes = Array.isArray(listRes.notes) ? listRes.notes : [];
+          sortNotesNewestFirst();
+
+          const byId = new Map(notes.map((n) => [n.id, n]));
+          for (const [id, entry] of Array.from(tabDocs.entries())) {
+            if (id === activeId) continue;
+            const latest = byId.get(id);
+            if (!latest || (entry.updatedAt && latest.updated_at !== entry.updatedAt)) {
+              tabDocs.delete(id);
+            }
+          }
+
+          renderSidebar();
+          renderTabs();
+
+          if (activeId !== null) {
+            if (dirty) {
+              await saveCurrentNote();
+            } else {
+              const noteId = activeId;
+              const noteRes = await wsRequest("get_note", { id: noteId });
+              const data = noteRes.note;
+              if (activeId === noteId && data && !dirty && previewSyncTimer === null) {
+                const cached = tabDocs.get(noteId);
+                if (cached) {
+                  cached.updatedAt = data.updated_at;
+                }
+                applyRemoteContentToDoc(cm.getDoc(), data.content || "", true);
+                setStatus("Connected");
+              }
+            }
+          } else {
+            setStatus("Connected");
+          }
+        } catch (err) {
+          setStatus(err.message || "Sync failed", true);
+        }
+      }
+
+      function scheduleReconnect() {
+        if (wsReconnectTimer !== null) return;
+        const delay = wsReconnectDelay;
+        wsReconnectDelay = Math.min(wsReconnectDelay * 2, WS_RECONNECT_MAX_MS);
+        wsReconnectTimer = setTimeout(() => {
+          wsReconnectTimer = null;
+          connectWebSocket();
+        }, delay);
+      }
+
+      function connectWebSocket() {
+        if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+          return;
+        }
+        const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const socket = new WebSocket(`${proto}//${window.location.host}/ws`);
+        ws = socket;
+
+        socket.addEventListener("open", () => {
+          if (ws !== socket) return;
+          wsReconnectDelay = WS_RECONNECT_BASE_MS;
+          if (!wsInitialized) {
+            loadInitialNotes();
+          } else {
+            setStatus("Reconnected");
+            resyncAfterReconnect();
+          }
+        });
+
+        socket.addEventListener("message", (event) => {
+          if (ws !== socket) return;
+          let msg;
+          try {
+            msg = JSON.parse(event.data);
+          } catch {
+            return;
+          }
+          if (!msg || typeof msg !== "object") return;
+
+          if (msg.req_id !== undefined && msg.req_id !== null) {
+            const key = String(msg.req_id);
+            const pending = wsPending.get(key);
+            if (pending) {
+              clearTimeout(pending.timer);
+              wsPending.delete(key);
+              if (msg.type === "error") {
+                pending.reject(new Error(msg.error || "Request failed"));
+              } else {
+                pending.resolve(msg);
+              }
+              return;
+            }
+          }
+
+          if (msg.type === "note_created" && msg.note) {
+            handleRemoteNoteCreated(msg.note);
+          } else if (msg.type === "note_updated" && msg.note) {
+            handleRemoteNoteUpdated(msg.note);
+          }
+        });
+
+        socket.addEventListener("close", () => {
+          if (ws !== socket) return;
+          ws = null;
+          rejectPendingRequests("Disconnected");
+          setStatus("Reconnecting...", true);
+          scheduleReconnect();
+        });
+
+        socket.addEventListener("error", () => {
+          // Close event follows and triggers reconnect.
+        });
+      }
+
       async function saveCurrentNote() {
         flushPreviewSync();
         if (saveTimer !== null) {
           clearTimeout(saveTimer);
           saveTimer = null;
         }
+        saveFirstDirtyAt = null;
         if (saveInFlight) {
           await saveInFlight;
         }
@@ -1301,21 +1563,17 @@
 
         const run = (async () => {
           try {
-            const res = await fetch(`/api/notes/${noteId}`, {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ content }),
-            });
-            if (!res.ok) {
-              const err = await res.json().catch(() => ({}));
-              throw new Error(err.error || `Save failed (${res.status})`);
-            }
-            const updated = await res.json();
+            const res = await wsRequest("update_note", { id: noteId, content });
+            const updated = res.note;
             const existing = notes.find((n) => n.id === noteId);
-            if (existing) {
+            if (existing && updated) {
               existing.updated_at = updated.updated_at;
               sortNotesNewestFirst();
               renderSidebar();
+            }
+            const cached = tabDocs.get(noteId);
+            if (cached && updated) {
+              cached.updatedAt = updated.updated_at;
             }
             if (!dirty && activeId === noteId) {
               setStatus("Saved");
@@ -1339,13 +1597,21 @@
       }
 
       function scheduleAutosave() {
+        const now = Date.now();
+        if (saveFirstDirtyAt === null) {
+          saveFirstDirtyAt = now;
+        }
         if (saveTimer !== null) {
           clearTimeout(saveTimer);
         }
+        const elapsed = now - saveFirstDirtyAt;
+        const remaining = Math.max(0, AUTOSAVE_MAX_WAIT_MS - elapsed);
+        const delay = Math.min(AUTOSAVE_DELAY_MS, remaining);
         saveTimer = setTimeout(() => {
           saveTimer = null;
+          saveFirstDirtyAt = null;
           saveCurrentNote();
-        }, AUTOSAVE_DELAY_MS);
+        }, delay);
       }
 
       function saveTabsState() {
@@ -1475,17 +1741,15 @@
         cm.setOption("readOnly", "nocursor");
         previewEl.contentEditable = "false";
         try {
-          const res = await fetch(`/api/notes/${noteId}`);
-          if (!res.ok) {
-            throw new Error(`Failed to load note (${res.status})`);
-          }
-          const data = await res.json();
+          const res = await wsRequest("get_note", { id: noteId });
+          const data = res.note;
           if (seq !== loadSeq) return;
 
           document.title = `${data.filename} — Notes`;
           const doc = new CodeMirror.Doc(data.content || "", "markdown");
           tabDocs.set(noteId, {
             doc,
+            updatedAt: data.updated_at,
             editorScroll: { left: 0, top: 0 },
             previewScroll: 0,
           });
@@ -1553,16 +1817,8 @@
       }
 
       async function createNote(filename) {
-        const res = await fetch("/api/notes", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ filename }),
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || `Failed to create note (${res.status})`);
-        }
-        return res.json();
+        const res = await wsRequest("create_note", { filename });
+        return res.note;
       }
 
       async function handleNewNote() {
@@ -1576,7 +1832,9 @@
 
         try {
           const created = await createNote(name);
-          notes.unshift(created);
+          if (!notes.some((n) => n.id === created.id)) {
+            notes.unshift(created);
+          }
           sortNotesNewestFirst();
 
           const query = searchEl.value.trim().toLowerCase();
@@ -1596,6 +1854,7 @@
           const doc = new CodeMirror.Doc("", "markdown");
           tabDocs.set(created.id, {
             doc,
+            updatedAt: created.updated_at,
             editorScroll: { left: 0, top: 0 },
             previewScroll: 0,
           });
@@ -1634,14 +1893,17 @@
       function flushOnUnload() {
         flushPreviewSync();
         if (activeId === null || !dirty) return;
-        const payload = JSON.stringify({ content: cm.getValue() });
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
         dirty = false;
-        fetch(`/api/notes/${activeId}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: payload,
-          keepalive: true,
-        }).catch(() => {});
+        try {
+          ws.send(
+            JSON.stringify({
+              type: "update_note",
+              id: activeId,
+              content: cm.getValue(),
+            })
+          );
+        } catch {}
       }
 
       // Live preview slash command menu
@@ -2563,13 +2825,13 @@
       exportBtn.addEventListener("click", handleExport);
       window.addEventListener("pagehide", flushOnUnload);
 
-      // Initial load
-      async function init() {
-        applyLayout();
+      // Initial load over WebSocket
+      async function loadInitialNotes() {
+        if (wsInitializing || wsInitialized) return;
+        wsInitializing = true;
         try {
-          const res = await fetch("/api/notes");
-          if (!res.ok) throw new Error(`Failed to load notes (${res.status})`);
-          notes = await res.json();
+          const res = await wsRequest("list_notes");
+          notes = Array.isArray(res.notes) ? res.notes : [];
           sortNotesNewestFirst();
 
           if (notes.length === 0) {
@@ -2577,6 +2839,7 @@
             notes = [first];
           }
 
+          wsInitialized = true;
           const saved = restoreTabsState();
           if (saved && saved.ids.length > 0 && saved.active !== null) {
             openTabIds = saved.ids;
@@ -2589,7 +2852,15 @@
           }
         } catch (err) {
           setStatus(err.message || "Failed to initialize", true);
+        } finally {
+          wsInitializing = false;
         }
+      }
+
+      function init() {
+        applyLayout();
+        setStatus("Connecting...");
+        connectWebSocket();
       }
 
       init();

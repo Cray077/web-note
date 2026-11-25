@@ -1,143 +1,148 @@
-# API Reference
+# API & WebSocket Reference
 
-All routes are defined in `app.py`. JSON endpoints consume and return `application/json` with UTF-8 encoding. There is no authentication layer; all routes are directly accessible over HTTP.
+All endpoints are defined in `app.py`. Note listing, loading, creation, saving, and real-time broadcasts run over a persistent WebSocket (`/ws`). HTTP routes are reserved for serving the SPA (`GET /`), static vendor assets (`/static/...`), and binary `.zip` archive download (`GET /api/export`). There is no built-in authentication layer.
 
-## Route Summary
+## Endpoint Summary
 
-| Method | Route | Handler (`app.py`) | Purpose |
+| Protocol / Method | Route | Handler (`app.py`) | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/` | `index` (`app.py:136`) | Serve the single-page app (`static/index.html`) |
+| `GET` | `/` | `index` | Serve the single-page app (`static/index.html`) |
 | `GET` | `/static/<path>` | Flask built-in | Serve vendored JS/CSS assets under `static/` |
-| `GET` | `/api/notes` | `list_notes` (`app.py:141`) | List all note metadata, newest first |
-| `POST` | `/api/notes` | `create_note` (`app.py:150`) | Create a new note and empty `.md` file |
-| `GET` | `/api/notes/<int:note_id>` | `get_note` (`app.py:182`) | Fetch note metadata and UTF-8 Markdown content |
-| `PUT` | `/api/notes/<int:note_id>` | `update_note` (`app.py:208`) | Save note Markdown content atomically and bump `updated_at` |
-| `GET` | `/api/export` | `export_notes` (`app.py:245`) | Download all notes as a single `.zip` archive |
+| `WS` | `/ws` | `ws_endpoint` | Bidirectional JSON WebSocket for note CRUD & live updates |
+| `GET` | `/api/export` | `export_notes` | Download all notes as a single `.zip` archive |
 
-Note: There are currently **no** `PATCH` / `DELETE` endpoints for renaming or deleting notes.
+Note: There are currently **no** rename or delete operations.
 
 ---
 
 ## Global Limits & Error Format
 
-- **Request body limit:** `app.config["MAX_CONTENT_LENGTH"] = MAX_NOTE_BYTES + 1 MiB` (`6 MiB`, `app.py:17`). Exceeding this triggers `@app.errorhandler(413)` (`app.py:131-133`).
-- **Note content limit:** `MAX_NOTE_BYTES = 5 * 1024 * 1024` (5 MB UTF-8 encoded, checked in `update_note` at `app.py:215-216`).
-- **Filename length limit:** `MAX_FILENAME_LEN = 255` characters after `.strip()` (`app.py:13`, `156-158`).
-- **Error response body:** All handled API errors return JSON of the shape:
+- **WebSocket message / request body limit:** `MAX_WS_MESSAGE_BYTES = MAX_NOTE_BYTES + 1 MiB` (`6 MiB`).
+- **Note content limit:** `MAX_NOTE_BYTES = 5 * 1024 * 1024` (5 MB UTF-8 encoded).
+- **Filename length limit:** `MAX_FILENAME_LEN = 255` characters after `.strip()`.
+- **WebSocket keepalive:** `SOCK_SERVER_OPTIONS = {"ping_interval": 25}` sends WebSocket ping frames every 25 seconds.
+- **Error response message (WebSocket):**
   ```json
-  {"error": "<human-readable message>"}
+  {"type": "error", "req_id": "4", "error": "<human-readable message>", "code": 400}
   ```
+  (`req_id` is included whenever the client sent one in the request.)
 
 ---
 
-## Endpoint Details
+## WebSocket Protocol (`WS /ws`)
+
+All frames are UTF-8 JSON objects with a `"type"` field. Client requests may include an arbitrary `"req_id"` echoed back on the matching response. Unsolicited live broadcasts omit `"req_id"` and are pushed to all connected clients **except** the sender.
+
+### `list_notes`
+
+- **Client → Server:**
+  ```json
+  {"type": "list_notes", "req_id": "1"}
+  ```
+- **Server → Client (`notes_list`):**
+  ```json
+  {
+    "type": "notes_list",
+    "req_id": "1",
+    "notes": [
+      {"id": 4, "filename": "TODO", "updated_at": "2026-11-25T14:30:00.123456Z"}
+    ]
+  }
+  ```
+
+### `create_note`
+
+- **Client → Server:**
+  ```json
+  {"type": "create_note", "req_id": "2", "filename": "Meeting Notes"}
+  ```
+- **Validation:** `filename` must be a `str` whose trimmed length is `1..255` characters (`code: 400` otherwise).
+- **Server → Sender (`note_created`):**
+  ```json
+  {
+    "type": "note_created",
+    "req_id": "2",
+    "note": {"id": 5, "filename": "Meeting Notes", "updated_at": "2026-11-25T14:31:00.654321Z"}
+  }
+  ```
+- **Server → Other Clients (live broadcast):**
+  ```json
+  {
+    "type": "note_created",
+    "note": {"id": 5, "filename": "Meeting Notes", "updated_at": "2026-11-25T14:31:00.654321Z"}
+  }
+  ```
+
+### `get_note`
+
+- **Client → Server:**
+  ```json
+  {"type": "get_note", "req_id": "3", "id": 5}
+  ```
+- **Server → Client (`note_content`):**
+  ```json
+  {
+    "type": "note_content",
+    "req_id": "3",
+    "note": {
+      "id": 5,
+      "filename": "Meeting Notes",
+      "updated_at": "2026-11-25T14:31:00.654321Z",
+      "content": "# Agenda\n\n- [ ] Review docs\n"
+    }
+  }
+  ```
+- **Errors:** `code: 400` (`Invalid note id`), `code: 404` (`Note not found`). If `<id>.md` is missing on disk while the DB row exists, returns `content: ""`.
+
+### `update_note`
+
+Atomically replaces `<NOTES_DIR>/<id>.md` (temp file + `fsync` + `os.replace`, serialized per note ID via `_get_note_lock`), updates `notes.updated_at`, replies to the sender, and broadcasts the updated note content to all other connected clients.
+
+- **Client → Server:**
+  ```json
+  {"type": "update_note", "req_id": "4", "id": 5, "content": "# Agenda\n\n- [x] Review docs\n"}
+  ```
+- **Server → Sender (`note_saved`):**
+  ```json
+  {
+    "type": "note_saved",
+    "req_id": "4",
+    "note": {"id": 5, "filename": "Meeting Notes", "updated_at": "2026-11-25T14:32:12.000123Z"}
+  }
+  ```
+- **Server → Other Clients (live broadcast):**
+  ```json
+  {
+    "type": "note_updated",
+    "note": {
+      "id": 5,
+      "filename": "Meeting Notes",
+      "updated_at": "2026-11-25T14:32:12.000123Z",
+      "content": "# Agenda\n\n- [x] Review docs\n"
+    }
+  }
+  ```
+- **Errors:** `code: 400` (`Invalid note id` / `content must be a string`), `code: 404` (`Note not found`), `code: 413` (`Note exceeds maximum size limit`).
+
+### `ping`
+
+- **Client → Server:** `{"type": "ping", "req_id": "p1"}`
+- **Server → Client:** `{"type": "pong", "req_id": "p1"}`
+
+---
+
+## HTTP Endpoints
 
 ### `GET /`
 
-Serves `static/index.html` via `send_from_directory(app.static_folder, "index.html")`.
-
-- **Response:** `200 OK`, `text/html; charset=utf-8`
-
----
-
-### `GET /api/notes`
-
-Returns metadata for all notes sorted newest-first (`ORDER BY updated_at DESC, id DESC`). Does not return note bodies or filesystem `path`.
-
-- **Response (`200 OK`):**
-  ```json
-  [
-    {
-      "id": 4,
-      "filename": "TODO",
-      "updated_at": "2026-11-19T13:37:00.123456Z"
-    }
-  ]
-  ```
-
----
-
-### `POST /api/notes`
-
-Creates a new note record in `notes.db` and atomically writes an empty `<id>.md` file.
-
-- **Request body:**
-  ```json
-  {
-    "filename": "Meeting Notes"
-  }
-  ```
-- **Validation (`app.py:152-158`):**
-  - `filename` must be a `str`; leading/trailing whitespace is trimmed.
-  - Trimmed length must be `1..255` characters.
-- **Success response (`201 Created`):**
-  ```json
-  {
-    "id": 5,
-    "filename": "Meeting Notes",
-    "updated_at": "2026-11-19T14:00:00.654321Z"
-  }
-  ```
-- **Error responses:**
-  - `400 Bad Request`: `{"error": "filename must be a string"}` or `{"error": "filename must be between 1 and 255 characters"}`
-
----
-
-### `GET /api/notes/<int:note_id>`
-
-Reads note metadata from SQLite and UTF-8 content from `<NOTES_DIR>/<note_id>.md`. If the file is missing on disk while the DB row exists, returns `content: ""`.
-
-- **Success response (`200 OK`):**
-  ```json
-  {
-    "id": 5,
-    "filename": "Meeting Notes",
-    "updated_at": "2026-11-19T14:00:00.654321Z",
-    "content": "# Agenda\n\n- [ ] Review docs\n"
-  }
-  ```
-- **Error responses:**
-  - `404 Not Found`: `{"error": "Note not found"}` (also returned automatically by Flask routing for non-integer IDs)
-
----
-
-### `PUT /api/notes/<int:note_id>`
-
-Atomically replaces `<NOTES_DIR>/<note_id>.md` with UTF-8 `content` (via temp file + `fsync` + `os.replace`) and updates `notes.updated_at` to current UTC time.
-
-- **Request body:**
-  ```json
-  {
-    "content": "# Agenda\n\n- [x] Review docs\n"
-  }
-  ```
-- **Validation (`app.py:210-224`):**
-  - Body must be a JSON object with string `content`.
-  - `len(content.encode("utf-8")) <= 5 * 1024 * 1024`.
-  - Note `note_id` must exist in `notes`.
-- **Success response (`200 OK`):**
-  ```json
-  {
-    "id": 5,
-    "filename": "Meeting Notes",
-    "updated_at": "2026-11-19T14:05:12.000123Z"
-  }
-  ```
-- **Error responses:**
-  - `400 Bad Request`: `{"error": "content must be a string"}`
-  - `404 Not Found`: `{"error": "Note not found"}`
-  - `413 Payload Too Large`: `{"error": "Note exceeds maximum size limit"}`
-
----
+Serves `static/index.html` (`200 OK`, `text/html; charset=utf-8`).
 
 ### `GET /api/export`
 
-Streams a `ZIP_DEFLATED` archive containing every note in `notes.db`, ordered newest-first, using a `SpooledTemporaryFile(max_size=10 MB)` buffer (`app.py:252`).
+Streams a `ZIP_DEFLATED` archive containing every note in `notes.db`, ordered newest-first, using a `SpooledTemporaryFile(max_size=10 MB)` buffer.
 
-- **Archive member naming (`safe_zip_name()`, `app.py:110-128`):**
+- **Archive member naming (`safe_zip_name()`):**
   - Replaces `[\\/:*?"<>|\x00-\x1f]` with `_`, trims whitespace and leading/trailing `.` characters (falls back to `note-<id>` if empty).
   - Appends `.md` without doubling `.md.md` when the display name already ends with `.md` (case-insensitive).
-  - Deduplicates case-insensitive collisions with ` (2)`, ` (3)`, etc. (e.g., `Todo List.md`, `Todo List (2).md`).
-- **Response (`200 OK`):**
-  - `Content-Type: application/zip`
-  - `Content-Disposition: attachment; filename=notes.zip`
+  - Deduplicates case-insensitive collisions with ` (2)`, ` (3)`, etc.
+- **Response (`200 OK`):** `Content-Type: application/zip`, `Content-Disposition: attachment; filename=notes.zip`.

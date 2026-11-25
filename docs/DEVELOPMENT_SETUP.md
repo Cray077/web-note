@@ -16,11 +16,11 @@
 
 ### Windows (PowerShell)
 
-> Note: `gunicorn` is Unix-only (requires `fcntl`), so install `flask` directly or use Flask's built-in dev server locally on Windows.
+> Note: `gunicorn` is Unix-only (requires `fcntl`), so install `flask` and `flask-sock` directly and use Flask's built-in threaded dev server locally on Windows.
 
 ```powershell
 python -m venv .venv
-.venv\Scripts\pip install flask
+.venv\Scripts\python -m pip install flask flask-sock
 $env:NOTES_DIR = ".\data"
 $env:PORT = "8000"
 .venv\Scripts\python app.py
@@ -36,10 +36,10 @@ python3 -m venv .venv
 NOTES_DIR=./data PORT=8000 .venv/bin/python app.py
 ```
 
-Or run locally under Gunicorn:
+Or run locally under Gunicorn (use `-w 1` so all WebSocket clients share one process for live broadcasts):
 
 ```bash
-NOTES_DIR=./data .venv/bin/gunicorn -w 2 -k gthread --threads 4 -b 127.0.0.1:8000 app:app
+NOTES_DIR=./data .venv/bin/gunicorn -w 1 -k gthread --threads 64 -b 127.0.0.1:8000 app:app
 ```
 
 ## Production Deployment (Linux VPS)
@@ -55,13 +55,13 @@ Designed for a lightweight 1 core / 1 GB RAM VPS behind Caddy:
    python3 -m venv .venv
    .venv/bin/pip install -r requirements.txt
    ```
-3. **Run via Gunicorn (managed by a `systemd` service):**
+3. **Run via Gunicorn (managed by a `systemd` service, single worker with threads so live WebSocket broadcasts reach all connected clients):**
    ```bash
-   .venv/bin/gunicorn -w 2 -k gthread --threads 4 -b 127.0.0.1:8000 app:app
+   .venv/bin/gunicorn -w 1 -k gthread --threads 64 -b 127.0.0.1:8000 app:app
    ```
-   `init_db()` runs lazily on the first DB request (thread-safe across workers) and configures SQLite WAL mode automatically.
+   `init_db()` runs lazily on the first DB request (thread-safe) and configures SQLite WAL mode automatically.
 4. **Reverse proxy & access control (Caddy):**
-   - Proxy `127.0.0.1:8000` over HTTPS with `reverse_proxy 127.0.0.1:8000`.
+   - Proxy `127.0.0.1:8000` over HTTPS with `reverse_proxy 127.0.0.1:8000` (Caddy automatically proxies WebSocket upgrades).
    - Because the app has **no built-in authentication**, restrict access at the network layer (Caddy `basic_auth`, Tailscale/VPN, or firewall rules) if exposed publicly.
 5. **Backups:**
    - Periodically archive `/var/notes/` (e.g., nightly `tar` or `rsync`). Because SQLite uses WAL mode, if backing up `notes.db` while live, prefer `sqlite3 /var/notes/notes.db ".backup '/path/to/notes.db'"` or copy `notes.db`, `notes.db-wal`, and `notes.db-shm` together.
