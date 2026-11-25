@@ -1102,12 +1102,12 @@
         <div class="header-actions">
           <div id="save-status" class="save-status" aria-live="polite"></div>
           <button id="sidebar-toggle-btn" class="btn btn-sm" type="button">Hide sidebar</button>
-          <button id="editor-toggle-btn" class="btn btn-sm" type="button">Hide editor</button>
+          <button id="editor-toggle-btn" class="btn btn-sm" type="button">Show editor</button>
           <button id="preview-toggle-btn" class="btn btn-sm" type="button">Hide preview</button>
         </div>
       </header>
       <div id="workspace" class="workspace">
-        <div id="editor-pane" class="editor-pane"></div>
+        <div id="editor-pane" class="editor-pane" hidden></div>
         <div id="preview" class="markdown" contenteditable="true" spellcheck="true" aria-label="Markdown preview editor"></div>
       </div>
       <div id="empty-state" class="empty-state" hidden>No open tabs — select a note from the sidebar or click +</div>
@@ -1270,9 +1270,9 @@
       let activeId = null;
       let dirty = false;
       let sidebarVisible = true;
-      let wideEditorVisible = true;
+      let wideEditorVisible = false;
       let widePreviewVisible = true;
-      let narrowPreviewActive = false;
+      let narrowPreviewActive = true;
       let saveTimer = null;
       let saveFirstDirtyAt = null;
       let previewTimer = null;
@@ -2365,10 +2365,6 @@
 
         saveActiveTabScroll();
         flushPreviewSync();
-        if (!wideQuery.matches && narrowPreviewActive) {
-          narrowPreviewActive = false;
-          applyLayout();
-        }
         await saveCurrentNote();
 
         if (!openTabIds.includes(noteId)) {
@@ -2512,10 +2508,6 @@
           }
 
           loadSeq++;
-          if (!wideQuery.matches && narrowPreviewActive) {
-            narrowPreviewActive = false;
-            applyLayout();
-          }
 
           if (!openTabIds.includes(created.id)) {
             openTabIds.push(created.id);
