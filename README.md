@@ -14,7 +14,7 @@ A minimal, self-hosted Markdown notes web application inspired by lightweight de
 - **Image upload & in-preview editing:** Upload images via `/image`, clipboard paste (`Ctrl/Cmd+V`), or drag-and-drop (stored under `user-images/<username>/`, served at `/images/<username>/<file>`, default `user1`). Hover any image in the live preview to drag-resize, flip (horizontal/vertical), rotate (±90°), or open the built-in canvas editor to resize, transform, and add freehand scribbles — saved atomically and synced live to connected clients.
 - **Interactive typed tables:** Add rows and columns directly in the live preview with `+` buttons, navigate cells with `Tab` / `Enter`, and assign per-column types (**Text**, **Number**, **Currency**, **Checkbox**, **Date**).
 - **Responsive collapsible layout:** Independent **Hide/Show sidebar**, **Hide/Show editor**, and **Hide/Show preview** controls on desktop (`>= 900px`), and single-pane **Edit / Preview** switching on smaller screens.
-- **Sidebar folders, folding, search, inline rename, autosave & export:** Organize notes into folders (`+ Folder`, `+` inside any folder, or drag-and-drop notes into/out of folders), fold/unfold individual folders or all folders at once (persisted in `localStorage`), filter with instant client-side search, rename notes or folders inline (`✎` or double-click), autosave (`350ms` debounce / `1000ms` max-wait) with `pagehide` unload flush, and export all notes (preserving folder structure) plus uploaded images as `.zip`.
+- **Sidebar folders, folding, search, inline rename, delete, autosave & export:** Organize notes into folders (`+ Folder`, `+` inside any folder, or drag-and-drop notes into/out of folders), fold/unfold individual folders or all folders at once (persisted in `localStorage`), filter with instant client-side search, rename notes or folders inline (`✎` or double-click), delete notes or folders from the sidebar (with confirmation; closing a tab via `×` never deletes the note), autosave (`350ms` debounce / `1000ms` max-wait) with `pagehide` unload flush, and export all notes (preserving folder structure) plus uploaded images as `.zip`.
 - **Zero-build & self-contained:** No Node.js, npm, bundler, or external CDN requests. All frontend dependencies are pinned and vendored locally under `static/vendor/`.
 
 ## Tech Stack
@@ -126,11 +126,13 @@ All note CRUD, image uploads, and live broadcasts happen as JSON messages over `
 | Client → Server | `update_note` | Atomically save Markdown content (max 5 MB); replies `note_saved` and broadcasts `note_updated` |
 | Client → Server | `rename_note` | Rename a note (`{"id": 5, "filename": "..."}`); replies and broadcasts `note_renamed` |
 | Client → Server | `move_note` | Move a note into a folder or back to root (`{"id": 5, "folder_id": 2 \| null}`); replies and broadcasts `note_moved` |
+| Client → Server | `delete_note` | Permanently delete a note from SQLite and disk (`{"id": 5}`); replies and broadcasts `note_deleted` |
 | Client → Server | `create_folder` | Create a folder (`{"name": "..."}`); replies and broadcasts `folder_created` |
 | Client → Server | `rename_folder` | Rename a folder (`{"id": 2, "name": "..."}`); replies and broadcasts `folder_renamed` |
+| Client → Server | `delete_folder` | Delete a folder (`{"id": 2, "delete_notes": true \| false}`); replies and broadcasts `folder_deleted` |
 | Client → Server | `upload_image` | Upload or replace a base64 image (max 10 MB); replies `image_uploaded` and broadcasts `image_updated` on edits |
 | Client → Server | `ping` | Keepalive check (`pong` reply) |
-| Server → Clients | `note_created` / `note_updated` / `note_renamed` / `note_moved` / `folder_created` / `folder_renamed` / `image_updated` | Live broadcast pushed to all other connected clients |
+| Server → Clients | `note_created` / `note_updated` / `note_renamed` / `note_moved` / `note_deleted` / `folder_created` / `folder_renamed` / `folder_deleted` / `image_updated` | Live broadcast pushed to all other connected clients |
 
 See [`docs/API_REFERENCE.md`](docs/API_REFERENCE.md) for full message schemas, limits, and error formats.
 

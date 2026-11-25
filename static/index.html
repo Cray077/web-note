@@ -134,7 +134,15 @@
       line-height: 1.35;
     }
 
-    .note-rename-btn {
+    .note-actions {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      flex: 0 0 auto;
+    }
+
+    .note-rename-btn,
+    .note-delete-btn {
       flex: 0 0 auto;
       width: 20px;
       height: 20px;
@@ -154,13 +162,22 @@
 
     .note-item:hover .note-rename-btn,
     .note-item:focus-within .note-rename-btn,
-    .note-item.active .note-rename-btn {
+    .note-item.active .note-rename-btn,
+    .note-item:hover .note-delete-btn,
+    .note-item:focus-within .note-delete-btn,
+    .note-item.active .note-delete-btn {
       opacity: 1;
     }
 
     .note-rename-btn:hover {
       background: rgba(15, 23, 42, 0.08);
       color: #111827;
+    }
+
+    .note-delete-btn:hover,
+    .folder-delete-btn:hover {
+      background: rgba(220, 38, 38, 0.12);
+      color: #dc2626;
     }
 
     .note-rename-input {
@@ -2007,6 +2024,32 @@
         renderSidebar();
       }
 
+      function createTrashSvg() {
+        const ns = "http://www.w3.org/2000/svg";
+        const svg = document.createElementNS(ns, "svg");
+        svg.setAttribute("width", "12");
+        svg.setAttribute("height", "12");
+        svg.setAttribute("viewBox", "0 0 16 16");
+        svg.setAttribute("fill", "none");
+        svg.setAttribute("stroke", "currentColor");
+        svg.setAttribute("stroke-width", "1.5");
+        svg.setAttribute("stroke-linecap", "round");
+        svg.setAttribute("stroke-linejoin", "round");
+        svg.setAttribute("aria-hidden", "true");
+        for (const d of [
+          "M2.5 4h11",
+          "M6 4V2.5h4V4",
+          "M4 4l.7 9.2a1 1 0 0 0 1 .8h4.6a1 1 0 0 0 1-.8L12 4",
+          "M6.7 7v4",
+          "M9.3 7v4",
+        ]) {
+          const path = document.createElementNS(ns, "path");
+          path.setAttribute("d", d);
+          svg.appendChild(path);
+        }
+        return svg;
+      }
+
       function buildNoteItemEl(note) {
         const li = document.createElement("li");
         li.className = "note-item" + (note.id === activeId ? " active" : "");
@@ -2023,6 +2066,9 @@
         nameEl.textContent = note.filename;
         nameEl.title = note.filename;
 
+        const actions = document.createElement("span");
+        actions.className = "note-actions";
+
         const renameBtn = document.createElement("button");
         renameBtn.className = "note-rename-btn";
         renameBtn.type = "button";
@@ -2030,8 +2076,18 @@
         renameBtn.setAttribute("aria-label", `Rename ${note.filename}`);
         renameBtn.textContent = "\u270E";
 
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "note-delete-btn";
+        deleteBtn.type = "button";
+        deleteBtn.title = "Delete note";
+        deleteBtn.setAttribute("aria-label", `Delete ${note.filename}`);
+        deleteBtn.appendChild(createTrashSvg());
+
+        actions.appendChild(renameBtn);
+        actions.appendChild(deleteBtn);
+
         nameRow.appendChild(nameEl);
-        nameRow.appendChild(renameBtn);
+        nameRow.appendChild(actions);
 
         const dateEl = document.createElement("div");
         dateEl.className = "note-date";
@@ -2127,8 +2183,16 @@
           renameBtn.setAttribute("aria-label", `Rename ${folder.name}`);
           renameBtn.textContent = "\u270E";
 
+          const deleteFolderBtn = document.createElement("button");
+          deleteFolderBtn.type = "button";
+          deleteFolderBtn.className = "folder-btn folder-delete-btn";
+          deleteFolderBtn.title = `Delete ${folder.name}`;
+          deleteFolderBtn.setAttribute("aria-label", `Delete ${folder.name}`);
+          deleteFolderBtn.appendChild(createTrashSvg());
+
           actions.appendChild(addBtn);
           actions.appendChild(renameBtn);
+          actions.appendChild(deleteFolderBtn);
 
           header.appendChild(chevron);
           header.appendChild(nameEl);
@@ -2225,6 +2289,156 @@
           if (!dirty) setStatus("Moved");
         } catch (err) {
           setStatus(err.message || "Move failed", true);
+        }
+      }
+
+      function enterEmptyState() {
+        loadSeq++;
+        activeId = null;
+        dirty = false;
+        saveFirstDirtyAt = null;
+        if (saveTimer !== null) {
+          clearTimeout(saveTimer);
+          saveTimer = null;
+        }
+        if (previewTimer !== null) {
+          clearTimeout(previewTimer);
+          previewTimer = null;
+        }
+        if (previewSyncTimer !== null) {
+          clearTimeout(previewSyncTimer);
+          previewSyncTimer = null;
+        }
+        cm.swapDoc(new CodeMirror.Doc("", "markdown"));
+        cm.setOption("readOnly", "nocursor");
+        previewEl.contentEditable = "false";
+        previewEl.innerHTML = "";
+        workspaceEl.hidden = true;
+        emptyStateEl.hidden = false;
+        document.title = "Notes";
+        renderTabs();
+        renderSidebar();
+        saveTabsState();
+      }
+
+      async function applyNoteDeleted(noteId) {
+        if (!Number.isInteger(noteId)) return;
+        notes = notes.filter((n) => n.id !== noteId);
+        if (renamingNoteId === noteId) renamingNoteId = null;
+
+        const tabIdx = openTabIds.indexOf(noteId);
+        if (tabIdx !== -1) {
+          openTabIds.splice(tabIdx, 1);
+        }
+        tabDocs.delete(noteId);
+
+        if (noteId === activeId) {
+          if (saveTimer !== null) {
+            clearTimeout(saveTimer);
+            saveTimer = null;
+          }
+          saveFirstDirtyAt = null;
+          if (previewSyncTimer !== null) {
+            clearTimeout(previewSyncTimer);
+            previewSyncTimer = null;
+          }
+          dirty = false;
+          activeId = null;
+
+          if (openTabIds.length > 0) {
+            const nextId = openTabIds[Math.min(tabIdx, openTabIds.length - 1)];
+            await selectNote(nextId);
+            return;
+          }
+          enterEmptyState();
+          return;
+        }
+
+        renderTabs();
+        renderSidebar();
+        saveTabsState();
+      }
+
+      async function applyFolderDeleted(folderId, deletedNoteIds = []) {
+        if (!Number.isInteger(folderId)) return;
+        folders = folders.filter((f) => f.id !== folderId);
+        if (foldedFolderIds.delete(folderId)) {
+          saveFoldedFolders();
+        }
+        if (renamingFolderId === folderId) renamingFolderId = null;
+
+        const deletedSet = new Set(Array.isArray(deletedNoteIds) ? deletedNoteIds : []);
+        for (const n of notes) {
+          if (n.folder_id === folderId && !deletedSet.has(n.id)) {
+            n.folder_id = null;
+          }
+        }
+        for (const nid of deletedSet) {
+          await applyNoteDeleted(nid);
+        }
+        renderSidebar();
+      }
+
+      async function handleDeleteNote(noteId) {
+        const note = notes.find((n) => n.id === noteId);
+        if (!note) return;
+        if (!confirm(`Delete note "${note.filename}"? This cannot be undone.`)) return;
+
+        if (noteId === activeId) {
+          if (saveTimer !== null) {
+            clearTimeout(saveTimer);
+            saveTimer = null;
+          }
+          saveFirstDirtyAt = null;
+          if (previewSyncTimer !== null) {
+            clearTimeout(previewSyncTimer);
+            previewSyncTimer = null;
+          }
+          dirty = false;
+        }
+
+        try {
+          await wsRequest("delete_note", { id: noteId });
+          await applyNoteDeleted(noteId);
+          setStatus("Deleted");
+        } catch (err) {
+          setStatus(err.message || "Delete failed", true);
+        }
+      }
+
+      async function handleDeleteFolder(folderId) {
+        const folder = folders.find((f) => f.id === folderId);
+        if (!folder) return;
+        const notesInFolder = notes.filter((n) => n.folder_id === folderId);
+        const message =
+          notesInFolder.length > 0
+            ? `Delete folder "${folder.name}" and permanently delete its ${notesInFolder.length} note(s)? This cannot be undone.`
+            : `Delete folder "${folder.name}"?`;
+        if (!confirm(message)) return;
+
+        const deletingActive = notesInFolder.some((n) => n.id === activeId);
+        if (deletingActive) {
+          if (saveTimer !== null) {
+            clearTimeout(saveTimer);
+            saveTimer = null;
+          }
+          saveFirstDirtyAt = null;
+          if (previewSyncTimer !== null) {
+            clearTimeout(previewSyncTimer);
+            previewSyncTimer = null;
+          }
+          dirty = false;
+        }
+
+        try {
+          const res = await wsRequest("delete_folder", {
+            id: folderId,
+            delete_notes: notesInFolder.length > 0,
+          });
+          await applyFolderDeleted(res.id, res.deleted_note_ids);
+          setStatus("Folder deleted");
+        } catch (err) {
+          setStatus(err.message || "Failed to delete folder", true);
         }
       }
 
@@ -2558,6 +2772,22 @@
               tabDocs.delete(id);
             }
           }
+          openTabIds = openTabIds.filter((id) => byId.has(id));
+          saveTabsState();
+
+          if (activeId !== null && !byId.has(activeId)) {
+            tabDocs.delete(activeId);
+            activeId = null;
+            dirty = false;
+            if (openTabIds.length > 0) {
+              await selectNote(openTabIds[0]);
+              setStatus("Connected");
+              return;
+            }
+            enterEmptyState();
+            setStatus("Connected");
+            return;
+          }
 
           renderSidebar();
           renderTabs();
@@ -2654,10 +2884,14 @@
             applyNoteRename(msg.note);
           } else if (msg.type === "note_moved" && msg.note) {
             applyNoteMoved(msg.note);
+          } else if (msg.type === "note_deleted" && Number.isInteger(msg.id)) {
+            applyNoteDeleted(msg.id);
           } else if (msg.type === "folder_created" && msg.folder) {
             applyFolderCreated(msg.folder);
           } else if (msg.type === "folder_renamed" && msg.folder) {
             applyFolderRenamed(msg.folder);
+          } else if (msg.type === "folder_deleted" && Number.isInteger(msg.id)) {
+            applyFolderDeleted(msg.id, msg.deleted_note_ids);
           } else if (msg.type === "image_updated" && msg.image) {
             handleRemoteImageUpdated(msg.image);
           }
@@ -4636,6 +4870,15 @@
           return;
         }
 
+        const deleteFolderBtn = e.target.closest(".folder-delete-btn");
+        if (deleteFolderBtn) {
+          e.stopPropagation();
+          const group = deleteFolderBtn.closest(".folder-group");
+          const fid = group ? Number(group.dataset.folderId) : NaN;
+          if (Number.isInteger(fid)) handleDeleteFolder(fid);
+          return;
+        }
+
         const folderHeader = e.target.closest(".folder-header");
         if (folderHeader) {
           const group = folderHeader.closest(".folder-group");
@@ -4650,6 +4893,15 @@
           const item = renameBtn.closest(".note-item");
           const id = item ? Number(item.dataset.id) : NaN;
           if (Number.isInteger(id)) startInlineRename(id);
+          return;
+        }
+
+        const deleteNoteBtn = e.target.closest(".note-delete-btn");
+        if (deleteNoteBtn) {
+          e.stopPropagation();
+          const item = deleteNoteBtn.closest(".note-item");
+          const id = item ? Number(item.dataset.id) : NaN;
+          if (Number.isInteger(id)) handleDeleteNote(id);
           return;
         }
 

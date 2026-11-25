@@ -12,8 +12,6 @@ All endpoints are defined in `app.py`. Note listing, loading, creation, saving, 
 | `GET` | `/images/<username>/<filename>` | `serve_user_image` | Serve an uploaded user image from `<IMAGES_DIR>/<username>/<filename>` |
 | `GET` | `/api/export` | `export_notes` | Download all notes and uploaded images as a single `.zip` archive |
 
-Note: There is currently **no** delete operation.
-
 ---
 
 ## Global Limits & Error Format
@@ -175,6 +173,22 @@ Renames a folder in SQLite, replies `folder_renamed`, and broadcasts `folder_ren
 
 - **Client → Server:** `{"type": "rename_folder", "req_id": "9", "id": 1, "name": "Projects"}`
 - **Server → Sender & Other Clients (`folder_renamed`):** `{"type": "folder_renamed", "folder": {"id": 1, "name": "Projects", "created_at": "..."}}`
+
+### `delete_note`
+
+Removes the note row from SQLite, unlinks `<NOTES_DIR>/<id>.md`, replies `note_deleted`, and broadcasts `note_deleted` to all other clients.
+
+- **Client → Server:** `{"type": "delete_note", "req_id": "10", "id": 5}`
+- **Server → Sender & Other Clients (`note_deleted`):** `{"type": "note_deleted", "id": 5}`
+- **Errors:** `code: 400` (`Invalid note id`), `code: 404` (`Note not found`).
+
+### `delete_folder`
+
+Deletes a folder from SQLite. When `delete_notes` is `true`, also deletes all notes inside the folder (DB rows + `.md` files) and lists their IDs in `deleted_note_ids`; when `false` (default), unfiles those notes to root (`folder_id = NULL`). Replies `folder_deleted` and broadcasts `folder_deleted` to all other clients.
+
+- **Client → Server:** `{"type": "delete_folder", "req_id": "11", "id": 1, "delete_notes": true}`
+- **Server → Sender & Other Clients (`folder_deleted`):** `{"type": "folder_deleted", "id": 1, "deleted_note_ids": [5, 6]}`
+- **Errors:** `code: 400` (`Invalid folder id`), `code: 404` (`Folder not found`).
 
 ### `upload_image`
 

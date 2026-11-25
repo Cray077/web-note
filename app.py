@@ -539,6 +539,65 @@ def op_move_note(raw_id: object, raw_folder_id: object) -> dict:
         }
 
 
+def op_delete_note(raw_id: object) -> dict:
+    note_id = parse_note_id(raw_id)
+
+    with _get_note_lock(note_id):
+        with closing(open_db()) as db:
+            row = db.execute(
+                "SELECT id FROM notes WHERE id = ?",
+                (note_id,),
+            ).fetchone()
+            if row is None:
+                raise AppError("Note not found", 404)
+
+            db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+            db.commit()
+
+        file_path = note_file_path(note_id)
+        try:
+            file_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+        return {"id": note_id}
+
+
+def op_delete_folder(raw_id: object, delete_notes: bool = False) -> dict:
+    folder_id = parse_folder_id(raw_id)
+    deleted_note_ids: list[int] = []
+
+    with closing(open_db()) as db:
+        row = db.execute(
+            "SELECT id FROM folders WHERE id = ?",
+            (folder_id,),
+        ).fetchone()
+        if row is None:
+            raise AppError("Folder not found", 404)
+
+        if delete_notes:
+            note_rows = db.execute(
+                "SELECT id FROM notes WHERE folder_id = ?",
+                (folder_id,),
+            ).fetchall()
+            deleted_note_ids = [r["id"] for r in note_rows]
+            db.execute("DELETE FROM notes WHERE folder_id = ?", (folder_id,))
+        else:
+            db.execute("UPDATE notes SET folder_id = NULL WHERE folder_id = ?", (folder_id,))
+
+        db.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
+        db.commit()
+
+    for note_id in deleted_note_ids:
+        with _get_note_lock(note_id):
+            try:
+                note_file_path(note_id).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    return {"id": folder_id, "deleted_note_ids": deleted_note_ids}
+
+
 def op_upload_image(
     raw_data: object,
     raw_username: object = None,
@@ -645,6 +704,14 @@ def handle_ws_message(client: WSClient, msg: dict) -> None:
             folder = op_rename_folder(msg.get("id"), msg.get("name"))
             reply({"type": "folder_renamed", "folder": folder})
             broadcast({"type": "folder_renamed", "folder": folder}, exclude=client)
+        elif msg_type == "delete_note":
+            deleted = op_delete_note(msg.get("id"))
+            reply({"type": "note_deleted", **deleted})
+            broadcast({"type": "note_deleted", **deleted}, exclude=client)
+        elif msg_type == "delete_folder":
+            deleted = op_delete_folder(msg.get("id"), bool(msg.get("delete_notes", False)))
+            reply({"type": "folder_deleted", **deleted})
+            broadcast({"type": "folder_deleted", **deleted}, exclude=client)
         elif msg_type == "upload_image":
             image, replaced = op_upload_image(
                 msg.get("data"),
